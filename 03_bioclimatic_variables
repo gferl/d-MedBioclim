@@ -1,0 +1,771 @@
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+
+##CLIMATOLOGIES---- 
+#Programmer: Giovanni-Breogán Ferreiro-Lera (https://linktr.ee/gferrle)
+#Last modification date: 2024/11/18
+
+#the original files were obtained from he Lawrence Livermore National Laboratory (LLNL) ESGF node (https://aims2.llnl.gov/search/cmip6/) (Accessed: 2024/12/16). 
+#then, they were assessed and downscaled through Empirical Bayesian kriging (EBK). #More details about the methods can be checked in the published papers: 
+      #1. Ferreiro-Lera et al. (2024): https://doi.org/10.3390/rs16111831; 
+      #2. Ferreiro-Lera et al. (2025): https://doi.org/10.1016/j.gloplacha.2025.104725
+
+#SETTING THW WORKING DIRECTORY-----
+
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path)) #we look for the folder in which we have saved the script
+setwd("..") #and move it one position forwards 
+
+#LIBRARIES----
+if (!require("terra")) install.packages("terra")
+library(terra)
+
+#ORGANIZING AND NAMING FILES----
+
+#creating a list twith the names of the directories
+mod <- c("+RF-MME", "ACCESS-CM2", "ACCESS-ESM1-5", "BCC-CSM2-MR", "CanESM5",  "CanESM5-CanOE", "CAS-ESM2-0", "CMCC-ESM2",  "CNRM-CM6-1", "CNRM-ESM2-1", "FGOALS-f3-L", "FIO-ESM2-0", "GFDL-ESM4", "GISS-E2-1-G", "GISS-E2-2-G", "HadGEM-GC31-LL", "INM-CM5-0", "IPSL-CM6A-LR", "KACE-1-0-G", "MCM-UA-1-0","MIROC-ES2L", "MIROC6", "MPI-ESM1-2-HR", "MPI-ESM1-2-LR", "MRI-ESM2-0", "UKES-M1-1-LL") #giving a more appropriate name to the GCMs names
+mod #to check it
+
+y <- c("2026-2050", "2051-2075", "2076-2100") #names of the first layer of directories (timeframe)
+sc <- c("ssp1-rcp26", "ssp2-rcp45", "ssp5-rcp85") #names of the second layer of directories (emission scenarios)
+v <- c("tas", "pr") #names of the third layer of directories (variables)
+month <- c("01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12")
+
+subdirs <- c("raw_data", "d_CHELSA", "d_E5L") #here is defined a new vector with the directories contained in every GCM folder
+prefix <- c("", "CH_", "E5L_") #the prefixes will be neccessary for naming the files
+biov <- c("bio", "climatologies") #here we define the directories wich will contain the bioclimatic variables
+#study area shape 
+clip <- ext(-10.2375, 46.1625, 33.96077, 51.76077)
+st.area <- vect("D:/+bbdd/shp/study_area_buffer.shp")
+st.area <- project(st.area, "EPSG:4258")
+
+#BIOCLIMATIC VARIABLES (BIO1 to BIO19)----
+#the definitions and equations for the nineteen bioclimatic variables were considered as described in: O´Donnell & Ignizio (2012): https://pubs.usgs.gov/ds/691/ds691.pdf and in Fick & Hijmans (2017): https://doi.org/10.1002/joc.5086
+#some of these BIOs cannot be calculated due to the fact that we do not hold maximum temperature and minimum temperature data
+
+subdirs <- c("raw_data", "d_CHELSA", "d_E5L") #here is defined a new vector with the directories contained in every GCM folder
+prefix <- c("", "CH_", "E5L_") #the prefixes will be neccessary for naming the files
+biov <- c("bio", "climatologies") #here we define the directories wich will contain the bioclimatic variables
+
+for(i0 in 1:3){ #i0 is used to run the loop between the different timeframes. i0 takes the following values 1: 2026-2050, 2: 2051-2075, 3: 2076-2100. 
+  for(i in 1:3){ #i is used to run the loop between the different scenarios i takes the following values 1: ssp1-rcp26, 2: ssp2-rcp45, 3: ssp5-rcp85.
+    for(i2 in 1:26){ #i2 is used to run the loop between the different GCMs i2 ranges between the model 1, correponding to the Random Forest Multi-model Ensemble (RF-MME), to the model 26 (alphabetically ordered): UKES-M1-1-LL.
+      for(i4 in 1:3){ #i4 is used to run the loop between the different methods. i4 takes the following values: 1: raw data; 2: delta versus CHELSA dataset; 3: delta versus ERA5 Land dataset. i4 will be also used for the prefixes. 
+        
+        #firstly we will list the temperature and precipitation rasters of each timeframe, scenario, GCM and method
+        t.dir <- paste(getwd(), "/", y[[i0]], "/", sc[[i]], "/", v[[1]], "/", mod[[i2]], "/", subdirs[[i4]], sep="") 
+        p.dir <- paste(getwd(), "/", y[[i0]], "/", sc[[i]], "/", v[[2]], "/", mod[[i2]], "/", subdirs[[i4]], sep="") 
+        tas <- rast(list.files(t.dir, full.names = T, pattern = ".tif"))
+        pr <- rast(list.files(p.dir, full.names = T, pattern = ".tif"))
+        #we will create the proper directories in each GCM folder of the bio directory
+        bio.dir <-  paste(getwd(), "/", y[[i0]], "/", sc[[i]], "/", biov[[1]], "/", mod[[i2]], sep = "")
+        raw_dir <- paste(bio.dir, "/", "raw_data", sep="") 
+        dir.create(raw_dir, recursive = T) 
+        fut_dir_che <- paste(bio.dir, "/", "d_CHELSA", sep = "")
+        dir.create(fut_dir_che, recursive = T) 
+        fut_dir_e5l <- paste(bio.dir, "/", "d_E5L", sep = "")
+        dir.create(fut_dir_e5l, recursive = T)
+        
+        #also it would be convenient to create a path where the files will be saved
+        save.path <- paste(bio.dir, "/", subdirs[[i4]], "/", sep="")
+        
+        #bio1: mean annual temperature.----
+        bio1 <- (tas[[1]]+tas[[2]]+tas[[3]]+tas[[4]]+tas[[5]]+tas[[6]]+
+                   tas[[7]]+tas[[8]]+tas[[9]]+tas[[10]]+tas[[11]]+tas[[12]])/12 
+        bio1.path <- paste(save.path, prefix[[i4]], "bio1_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], ".tif", sep="")
+        writeRaster(bio1, bio1.path, overwrite=T)
+        
+        #||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+        #||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+        #bio2 (Annual Mean Diurnal Range) and bio3 (Isothermality) cannot be computed as we do not have Tmax and Tmin.
+        #||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+        #||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+        
+        #bio4: temperature seasonality.----
+        bio4 <- app(tas, fun = sd, na.rm=T, overwrite=T)*100
+        bio4.path <- paste(save.path, prefix[[i4]], "bio4_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], ".tif", sep="")
+        writeRaster(bio4, bio4.path, overwrite=T)
+        
+        #||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+        #||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+        #bio5 (max temperature of warmest month), bio6 (min temperature of coldest month) and bio7 (annual temperature range) cannot be computed as we do not have Tmax and Tmin.
+        #||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+        #||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+        
+        
+        #bio8: mean temperature of wettest quarter.---- 
+        #firstly we have to find the wettest quarter of the year
+        #we define all the possible triplets for rainfall
+        pq1 <- pr[[1]] + pr[[2]] + pr[[3]]
+        pq2 <- pr[[2]] + pr[[3]] + pr[[4]]
+        pq3 <- pr[[3]] + pr[[4]] + pr[[5]]
+        pq4 <- pr[[4]] + pr[[5]] + pr[[6]]
+        pq5 <- pr[[5]] + pr[[6]] + pr[[7]]
+        pq6 <- pr[[6]] + pr[[7]] + pr[[8]]
+        pq7 <- pr[[7]] + pr[[8]] + pr[[9]]
+        pq8 <- pr[[8]] + pr[[9]] + pr[[10]]
+        pq9 <- pr[[9]] + pr[[10]] + pr[[11]]
+        pq10 <- pr[[10]] + pr[[11]] + pr[[12]]
+        pq11 <- pr[[11]] + pr[[12]] + pr[[1]]
+        pq12 <- pr[[12]] + pr[[1]] + pr[[2]]
+        
+        pQ <- c(pq1, pq2, pq3, pq4, pq5, pq6, pq7, pq8, pq9, pq10, pq11, pq12) #we list them
+        pH <- which.max(pQ) #and find which of them is the one with the highest total rainfall
+        
+        #we will compute all the possible triplets for temperature
+        tq1 <- (tas[[1]] + tas[[2]] + tas[[3]])/3
+        tq2 <- (tas[[2]] + tas[[3]] + tas[[4]])/3
+        tq3 <- (tas[[3]] + tas[[4]] + tas[[5]])/3
+        tq4 <- (tas[[4]] + tas[[5]] + tas[[6]])/3
+        tq5 <- (tas[[5]] + tas[[6]] + tas[[7]])/3
+        tq6 <- (tas[[6]] + tas[[7]] + tas[[8]])/3
+        tq7 <- (tas[[7]] + tas[[8]] + tas[[9]])/3
+        tq8 <- (tas[[8]] + tas[[9]] + tas[[10]])/3
+        tq9 <- (tas[[9]] + tas[[10]] + tas[[11]])/3
+        tq10 <- (tas[[10]] + tas[[11]] + tas[[12]])/3
+        tq11 <- (tas[[11]] + tas[[12]] + tas[[1]])/3
+        tq12 <- (tas[[12]] + tas[[1]] + tas[[2]])/3
+        
+        tQ <- c(tq1, tq2, tq3, tq4, tq5, tq6, tq7, tq8, tq9, tq10, tq11, tq12) #we list them
+        bio8 <- ifel(pH==1, tq1,ifel(pH==2, tq2, ifel(pH==3, tq3, ifel(pH==4, tq4, ifel(pH==5, tq5, ifel(pH==6, tq6, ifel(pH==7, tq7, ifel(pH==8, tq8, ifel(pH==9, tq9, ifel(pH==10, tq10, ifel(pH==11, tq11, ifel(pH==12, tq12, 0))))))))))))#and we select the quarter which has the highest rainfall
+        
+        bio8.path <- paste(save.path, prefix[[i4]], "bio8_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], ".tif", sep="")
+        writeRaster(bio8, bio8.path, overwrite=T)
+        
+        #bio9: mean temperature of driest quarter.---- 
+        #it is the same than for bio8, but looking for the quarter with the lowest rainfall
+        pL <- which.min(pQ)
+        bio9 <- ifel(pL==1, tq1, ifel(pL==2, tq2, ifel(pL==3, tq3, ifel(pL==4, tq4, ifel(pL==5, tq5, ifel(pL==6, tq6, ifel(pL==7, tq7, ifel(pL==8, tq8, ifel(pL==9, tq9, ifel(pL==10, tq10, ifel(pL==11, tq11, ifel(pL==12, tq12, 0))))))))))))
+        bio9.path <- paste(save.path, prefix[[i4]], "bio9_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], ".tif", sep="")
+        writeRaster(bio9, bio9.path, overwrite=T)
+        
+        #bio10: mean temperature of warmest quarter.----
+        #it is simple because we already have the temperature quarters
+        bio10 <- app(tQ, fun = max, na.rm=T, overwrite=T)
+        bio10.path <- paste(save.path, prefix[[i4]], "bio10_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], ".tif", sep="")
+        writeRaster(bio10, bio10.path, overwrite=T)
+        
+        #bio11: mean temperature of coldest quarter.----
+        #the same than for bio10
+        bio11 <- app(tQ, fun = min, na.rm=T, overwrite=T)
+        bio11.path <- paste(save.path, prefix[[i4]], "bio11_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], ".tif", sep="")
+        writeRaster(bio11, bio11.path, overwrite=T)
+        
+        #bio12: annual precipitation.----
+        bio12 <- pr[[1]]+pr[[2]]+pr[[3]]+pr[[4]]+pr[[5]]+pr[[6]]+
+          pr[[7]]+pr[[8]]+pr[[9]]+pr[[10]]+pr[[11]]+pr[[12]]
+        bio12.path <- paste(save.path, prefix[[i4]], "bio12_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], ".tif", sep="")
+        writeRaster(bio12, bio12.path, overwrite=T)
+        
+        #bio13: precipitation of wettest month.----
+        bio13 <- app(pr, fun = max, na.rm=T, overwrite=T)
+        bio13.path <- paste(save.path, prefix[[i4]], "bio13_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], ".tif", sep="")
+        writeRaster(bio13, bio13.path, overwrite=T)
+        
+        #bio14: precipitation of driest month.----
+        bio14 <- app(pr, fun = min, na.rm=T, overwrite=T)
+        bio14.path <- paste(save.path, prefix[[i4]], "bio14_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], ".tif", sep="")
+        writeRaster(bio14, bio14.path, overwrite=T)
+        
+        #bio15: precipitation seasonality.----
+        pSD <- app(pr, fun = sd, na.rm=T, overwrite=T) #standard deviation in precipitation
+        D <- 1 + (bio12/12) #average precipitation of each month. One is added to avoid too large values when bio12/12 is less than 1.
+        bio15 <- pSD/D
+        bio15.path <- paste(save.path, prefix[[i4]], "bio15_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], ".tif", sep="")
+        writeRaster(bio15, bio15.path, overwrite=T)
+        
+        #bio16: precipitation of wettest quarter.----
+        #we will use quarters defined in lines 346-359
+        bio16 <- app(pQ, fun = max, na.rm=T, overwrite=T)
+        bio16.path <- paste(save.path, prefix[[i4]], "bio16_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], ".tif", sep="")
+        writeRaster(bio16, bio16.path, overwrite=T)
+        
+        #bio17: precipitation of driest quarter.----
+        #the same than for bio16
+        bio17 <- app(pQ, fun = min, na.rm=T, overwrite=T)
+        bio17.path <- paste(save.path, prefix[[i4]], "bio17_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], ".tif", sep="")
+        writeRaster(bio17, bio17.path, overwrite=T)
+        
+        #bio 18: precipitation of warmest quarter.----
+        #the process will be the same than for bio8 (line3 43) 
+        tH <- which.max(tQ)
+        bio18 <- ifel(tH==1, pq1, ifel(tH==2, pq2, ifel(tH==3, pq3, ifel(tH==4, pq4, ifel(tH==5, pq5, ifel(tH==6, pq6, ifel(tH==7, pq7, ifel(tH==8, pq8, ifel(tH==9, pq9, ifel(tH==10, pq10, ifel(tH==11, pq11, ifel(tH==12, pq12, 0))))))))))))
+        bio18.path <- paste(save.path, prefix[[i4]], "bio18_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], ".tif", sep="")
+        writeRaster(bio18, bio18.path, overwrite=T)
+        
+        #bio 19: precipitation of coldest quarter.----  
+        #the process will be the same than for bio9 (line381)
+        tL <- which.min(tQ)
+        bio19 <- ifel(tL==1, pq1, ifel(tL==2, pq2, ifel(tL==3, pq3, ifel(tL==4, pq4, ifel(tL==5, pq5, ifel(tL==6, pq6, ifel(tL==7, pq7, ifel(tL==8, pq8, ifel(tL==9, pq9, ifel(tL==10, pq10, ifel(tL==11, pq11, ifel(tL==12, pq12, 0))))))))))))
+        bio19.path <- paste(save.path, prefix[[i4]], "bio19_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], ".tif", sep="")
+        writeRaster(bio19, bio19.path, overwrite=T)
+        
+        #we are going to add, also, some bioclimatic variables from the Worldwide Bioclimatic Classification System. For more info or additional explanations about variables, Rivas-Martinez et al. (2011): https://doi.org.10.5616/gg110001 could be checked. If the doi is not working, you can download it from here: https://www.researchgate.net/publication/234015449_Worldwide_Bioclimatic_Classification_System
+        
+        #biorm1: index of continentality (Ic) ----
+        biorm1 <- app(tas, fun = max, na.rm=T, overwrite=T) - app(tas, fun = min, na.rm=T, overwrite=T)
+        biorm1.path <- paste(save.path, prefix[[i4]], "biorm1_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], ".tif", sep="")
+        writeRaster(biorm1, biorm1.path, overwrite=T)
+        
+        #biorm2: (compensated) thermicity index (It(c)) ----
+        #firstly we will calculate the thermicity index (It)
+        it <- 2*bio1*10 #optimally, we should use the following expresion: It=(M+m)*10, being M the maximum temperature of the warmest month and m the minimum temperature of the coldest month. As we do not hold these data, we will use an aproximation using just the annual average temperature (bio1)
+        #then, we check if there is needed any compensation depending on the continentality index (Ic=biorm1). If not, then It = Itc
+        biorm2 <- ifel(biorm1 <= 8, it - 10*(8-biorm1), 
+                       ifel(biorm1 > 18 & biorm1 < 21, it + 5*(biorm1 - 18), 
+                            ifel(biorm1 > 21 & biorm1 < 28, it + 15 + 15*(biorm1 - 21),
+                                 ifel(biorm1 > 28 & biorm1 < 46, it + 15 + 105 + 25*(biorm1 - 28),
+                                      ifel(biorm1 > 46, it + 15 + 105 + 450 + 30*(biorm1 - 46), it
+                                      )))))
+        biorm2.path <- paste(save.path, prefix[[i4]], "biorm2_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], ".tif", sep="")
+        writeRaster(biorm2, biorm2.path, overwrite=T)
+        
+        #biorm3: positive temperature (Tp)---- 
+        biorm3 <- (ifel(tas[[1]]>0, tas[[1]], 0) +
+                     ifel(tas[[2]]>0, tas[[2]], 0) +
+                     ifel(tas[[3]]>0, tas[[3]], 0) +
+                     ifel(tas[[4]]>0, tas[[4]], 0) +
+                     ifel(tas[[5]]>0, tas[[5]], 0) +
+                     ifel(tas[[6]]>0, tas[[6]], 0) +
+                     ifel(tas[[7]]>0, tas[[7]], 0) +
+                     ifel(tas[[8]]>0, tas[[8]], 0) +
+                     ifel(tas[[9]]>0, tas[[9]], 0) +
+                     ifel(tas[[10]]>0, tas[[10]], 0) +
+                     ifel(tas[[11]]>0, tas[[11]], 0) +
+                     ifel(tas[[12]]>0, tas[[12]], 0))*10
+        biorm3.path <- paste(save.path, prefix[[i4]], "biorm3_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], ".tif", sep="")
+        writeRaster(biorm3, biorm3.path, overwrite=T)
+        
+        #biorm4: positive precipitation (Pp)----
+        biorm4 <- (ifel(tas[[1]]>0, pr[[1]], 0) +
+                     ifel(tas[[2]]>0, pr[[2]], 0) +
+                     ifel(tas[[3]]>0, pr[[3]], 0) +
+                     ifel(tas[[4]]>0, pr[[4]], 0) +
+                     ifel(tas[[5]]>0, pr[[5]], 0) +
+                     ifel(tas[[6]]>0, pr[[6]], 0) +
+                     ifel(tas[[7]]>0, pr[[7]], 0) +
+                     ifel(tas[[8]]>0, pr[[8]], 0) +
+                     ifel(tas[[9]]>0, pr[[9]], 0) +
+                     ifel(tas[[10]]>0, pr[[10]], 0) +
+                     ifel(tas[[11]]>0, pr[[11]], 0) +
+                     ifel(tas[[12]]>0, pr[[12]], 0))
+        biorm4.path <- paste(save.path, prefix[[i4]], "biorm4_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], ".tif", sep="")
+        writeRaster(biorm4, biorm4.path, overwrite=T)
+        
+        #biorm5: ombrothermic index (Io)----
+        biorm5 <- (biorm4*10)/biorm3
+        biorm5.path <- paste(save.path, prefix[[i4]], "biorm5_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], ".tif", sep="")
+        writeRaster(biorm5, biorm5.path, overwrite=T)
+        
+        #biorm6: ombrothermic index of the driest month (Ios1)----
+        #it will be assumed that this month is either July or August 
+        biorm6 <- ifel(pr[[7]]>pr[[8]], pr[[8]], pr[[7]])/ifel(pr[[7]]>pr[[8]], tas[[8]], tas[[7]])
+        biorm6.path <- paste(save.path, prefix[[i4]], "biorm6_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], ".tif", sep="")
+        writeRaster(biorm6, biorm6.path, overwrite=T)
+        
+        #biorm7: ombrothermic index of the two consecutive driest months(Ios2)----
+        #it will be assumed that this months are July and August 
+        biorm7 <- (pr[[7]]+pr[[8]])/(tas[[7]]+tas[[8]])
+        biorm7.path <- paste(save.path, prefix[[i4]], "biorm7_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], ".tif", sep="")
+        writeRaster(biorm7, biorm7.path, overwrite=T)
+        
+        #biorm8: ombrothermic index of the two consecutive driest months and the precedent month(Ios3)----
+        biorm8 <-  (pr[[6]]+pr[[7]]+pr[[8]])/(tas[[6]]+tas[[7]]+tas[[8]])
+        biorm8.path <- paste(save.path, prefix[[i4]], "biorm8_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], ".tif", sep="")
+        writeRaster(biorm8, biorm8.path, overwrite=T)
+        
+        #biorm9: ombrothermic index of the two consecutive driest months and the two precedent months(Ios4)----
+        biorm9 <- (pr[[5]]+pr[[6]]+pr[[7]]+pr[[8]])/(tas[[5]]+tas[[6]]+tas[[7]]+tas[[8]])
+        biorm9.path <- paste(save.path, prefix[[i4]], "biorm9_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], ".tif", sep="")
+        writeRaster(biorm9, biorm9.path, overwrite=T)
+        gc() #clean the garbage for the subsequent loop
+      }
+    }
+  }
+}
+
+#we´ll do the same calculations for the period 1981-2010----
+#first, for ERA5 and CHELSA
+#loading chelsa and e5l data clipped to the study area
+t.chelsa <- rast(list.files(paste(getwd(), "/1981-2010/CHELSA/tas/crop", sep=""), full.names = T))
+p.chelsa <- rast(list.files(paste(getwd(), "/1981-2010/CHELSA/pr/crop", sep=""), full.names = T)) 
+t.e5land <- rast(list.files(paste(getwd(), "/1981-2010/E5L/tas", sep=""), full.names = T)) 
+p.e5land <- rast(list.files(paste(getwd(), "/1981-2010/E5L/pr", sep=""), full.names = T))
+#CHELSA----
+tas <- t.chelsa
+pr <- p.chelsa
+path <- paste(getwd(), "/1981-2010/CHELSA/bio", sep = "")
+  
+bio1 <- (tas[[1]]+tas[[2]]+tas[[3]]+tas[[4]]+tas[[5]]+tas[[6]]+
+             tas[[7]]+tas[[8]]+tas[[9]]+tas[[10]]+tas[[11]]+tas[[12]])/12 
+writeRaster(bio1, paste(path, "/bio1_1981-2010_CH.tif", sep=""), overwrite=T)
+  
+bio4 <- app(tas, fun = sd, na.rm=T, overwrite=T)*100
+writeRaster(bio4, paste(path, "/bio4_1981-2010_CH.tif", sep=""), overwrite=T)
+#bio8: mean temperature of wettest quarter. 
+  pq1 <- pr[[1]] + pr[[2]] + pr[[3]]
+  pq2 <- pr[[2]] + pr[[3]] + pr[[4]]
+  pq3 <- pr[[3]] + pr[[4]] + pr[[5]]
+  pq4 <- pr[[4]] + pr[[5]] + pr[[6]]
+  pq5 <- pr[[5]] + pr[[6]] + pr[[7]]
+  pq6 <- pr[[6]] + pr[[7]] + pr[[8]]
+  pq7 <- pr[[7]] + pr[[8]] + pr[[9]]
+  pq8 <- pr[[8]] + pr[[9]] + pr[[10]]
+  pq9 <- pr[[9]] + pr[[10]] + pr[[11]]
+  pq10 <- pr[[10]] + pr[[11]] + pr[[12]]
+  pq11 <- pr[[11]] + pr[[12]] + pr[[1]]
+  pq12 <- pr[[12]] + pr[[1]] + pr[[2]]
+  
+  pQ <- c(pq1, pq2, pq3, pq4, pq5, pq6, pq7, pq8, pq9, pq10, pq11, pq12) #we list them
+  pH <- which.max(pQ) #and find which of them is the one with the highest total rainfall
+  
+  #we will compute all the possible triplets for temperature
+  tq1 <- (tas[[1]] + tas[[2]] + tas[[3]])/3
+  tq2 <- (tas[[2]] + tas[[3]] + tas[[4]])/3
+  tq3 <- (tas[[3]] + tas[[4]] + tas[[5]])/3
+  tq4 <- (tas[[4]] + tas[[5]] + tas[[6]])/3
+  tq5 <- (tas[[5]] + tas[[6]] + tas[[7]])/3
+  tq6 <- (tas[[6]] + tas[[7]] + tas[[8]])/3
+  tq7 <- (tas[[7]] + tas[[8]] + tas[[9]])/3
+  tq8 <- (tas[[8]] + tas[[9]] + tas[[10]])/3
+  tq9 <- (tas[[9]] + tas[[10]] + tas[[11]])/3
+  tq10 <- (tas[[10]] + tas[[11]] + tas[[12]])/3
+  tq11 <- (tas[[11]] + tas[[12]] + tas[[1]])/3
+  tq12 <- (tas[[12]] + tas[[1]] + tas[[2]])/3
+  
+  tQ <- c(tq1, tq2, tq3, tq4, tq5, tq6, tq7, tq8, tq9, tq10, tq11, tq12) #we list them
+bio8 <- ifel(pH==1, tq1,ifel(pH==2, tq2, ifel(pH==3, tq3, ifel(pH==4, tq4, ifel(pH==5, tq5, ifel(pH==6, tq6, ifel(pH==7, tq7, ifel(pH==8, tq8, ifel(pH==9, tq9, ifel(pH==10, tq10, ifel(pH==11, tq11, ifel(pH==12, tq12, 0))))))))))))#and we select the quarter which has the highest rainfall
+writeRaster(bio8, paste(path, "/bio8_1981-2010_CH.tif", sep=""), overwrite=T)
+  
+pL <- which.min(pQ)
+bio9 <- ifel(pL==1, tq1, ifel(pL==2, tq2, ifel(pL==3, tq3, ifel(pL==4, tq4, ifel(pL==5, tq5, ifel(pL==6, tq6, ifel(pL==7, tq7, ifel(pL==8, tq8, ifel(pL==9, tq9, ifel(pL==10, tq10, ifel(pL==11, tq11, ifel(pL==12, tq12, 0))))))))))))
+writeRaster(bio9, paste(path, "/bio9_1981-2010_CH.tif", sep=""), overwrite=T)
+  
+bio10 <- app(tQ, fun = max, na.rm=T, overwrite=T)
+writeRaster(bio10, paste(path, "/bio10_1981-2010_CH.tif", sep=""), overwrite=T)
+  
+bio11 <- app(tQ, fun = min, na.rm=T, overwrite=T)
+writeRaster(bio11, paste(path, "/bio11_1981-2010_CH.tif", sep=""), overwrite=T)
+  
+bio12 <- pr[[1]]+pr[[2]]+pr[[3]]+pr[[4]]+pr[[5]]+pr[[6]]+
+    pr[[7]]+pr[[8]]+pr[[9]]+pr[[10]]+pr[[11]]+pr[[12]]
+writeRaster(bio12, paste(path, "/bio12_1981-2010_CH.tif", sep=""), overwrite=T)
+  
+bio13 <- app(pr, fun = max, na.rm=T, overwrite=T)
+writeRaster(bio13, paste(path, "/bio13_1981-2010_CH.tif", sep=""), overwrite=T)
+  
+bio14 <- app(pr, fun = min, na.rm=T, overwrite=T)
+writeRaster(bio14, paste(path, "/bio14_1981-2010_CH.tif", sep=""), overwrite=T)
+  
+pSD <- app(pr, fun = sd, na.rm=T, overwrite=T) #standard deviation in precipitation
+D <- 1 + (bio12/12) #average precipitation of each month. One is added to avoid too large values when bio12/12 is less than 1.
+bio15 <- pSD/D
+writeRaster(bio15, paste(path, "/bio15_1981-2010_CH.tif", sep=""), overwrite=T)
+  
+bio16 <- app(pQ, fun = max, na.rm=T, overwrite=T)
+writeRaster(bio16, paste(path, "/bio16_1981-2010_CH.tif", sep=""), overwrite=T)
+  
+bio17 <- app(pQ, fun = min, na.rm=T, overwrite=T)
+writeRaster(bio17, paste(path, "/bio17_1981-2010_CH.tif", sep=""), overwrite=T)
+  
+tH <- which.max(tQ)
+bio18 <- ifel(tH==1, pq1, ifel(tH==2, pq2, ifel(tH==3, pq3, ifel(tH==4, pq4, ifel(tH==5, pq5, ifel(tH==6, pq6, ifel(tH==7, pq7, ifel(tH==8, pq8, ifel(tH==9, pq9, ifel(tH==10, pq10, ifel(tH==11, pq11, ifel(tH==12, pq12, 0))))))))))))
+writeRaster(bio18, paste(path, "/bio18_1981-2010_CH.tif", sep=""), overwrite=T)
+  
+tL <- which.min(tQ)
+bio19 <- ifel(tL==1, pq1, ifel(tL==2, pq2, ifel(tL==3, pq3, ifel(tL==4, pq4, ifel(tL==5, pq5, ifel(tL==6, pq6, ifel(tL==7, pq7, ifel(tL==8, pq8, ifel(tL==9, pq9, ifel(tL==10, pq10, ifel(tL==11, pq11, ifel(tL==12, pq12, 0))))))))))))
+writeRaster(bio19, paste(path, "/bio19_1981-2010_CH.tif", sep=""), overwrite=T)
+  
+biorm1 <- app(tas, fun = max, na.rm=T, overwrite=T) - app(tas, fun = min, na.rm=T, overwrite=T)
+writeRaster(biorm1, paste(path, "/biorm1_1981-2010_CH.tif", sep=""), overwrite=T)
+  
+it <- 2*bio1*10 
+biorm2 <- ifel(biorm1 <= 8, it - 10*(8-biorm1), 
+                 ifel(biorm1 > 18 & biorm1 < 21, it + 5*(biorm1 - 18), 
+                      ifel(biorm1 > 21 & biorm1 < 28, it + 15 + 15*(biorm1 - 21),
+                           ifel(biorm1 > 28 & biorm1 < 46, it + 15 + 105 + 25*(biorm1 - 28),
+                                ifel(biorm1 > 46, it + 15 + 105 + 450 + 30*(biorm1 - 46), it
+                                )))))
+writeRaster(biorm2, paste(path, "/biorm2_1981-2010_CH.tif", sep=""), overwrite=T)
+  
+  
+biorm3 <- (ifel(tas[[1]]>0, tas[[1]], 0) +
+               ifel(tas[[2]]>0, tas[[2]], 0) +
+               ifel(tas[[3]]>0, tas[[3]], 0) +
+               ifel(tas[[4]]>0, tas[[4]], 0) +
+               ifel(tas[[5]]>0, tas[[5]], 0) +
+               ifel(tas[[6]]>0, tas[[6]], 0) +
+               ifel(tas[[7]]>0, tas[[7]], 0) +
+               ifel(tas[[8]]>0, tas[[8]], 0) +
+               ifel(tas[[9]]>0, tas[[9]], 0) +
+               ifel(tas[[10]]>0, tas[[10]], 0) +
+               ifel(tas[[11]]>0, tas[[11]], 0) +
+               ifel(tas[[12]]>0, tas[[12]], 0))*10
+writeRaster(biorm3, paste(path, "/biorm3_1981-2010_CH.tif", sep=""), overwrite=T)
+
+biorm4 <- (ifel(tas[[1]]>0, pr[[1]], 0) +
+               ifel(tas[[2]]>0, pr[[2]], 0) +
+               ifel(tas[[3]]>0, pr[[3]], 0) +
+               ifel(tas[[4]]>0, pr[[4]], 0) +
+               ifel(tas[[5]]>0, pr[[5]], 0) +
+               ifel(tas[[6]]>0, pr[[6]], 0) +
+               ifel(tas[[7]]>0, pr[[7]], 0) +
+               ifel(tas[[8]]>0, pr[[8]], 0) +
+               ifel(tas[[9]]>0, pr[[9]], 0) +
+               ifel(tas[[10]]>0, pr[[10]], 0) +
+               ifel(tas[[11]]>0, pr[[11]], 0) +
+               ifel(tas[[12]]>0, pr[[12]], 0))
+writeRaster(biorm4, paste(path, "/biorm4_1981-2010_CH.tif", sep=""), overwrite=T)
+
+biorm5 <- (biorm4*10)/biorm3
+writeRaster(biorm5, paste(path, "/biorm5_1981-2010_CH.tif", sep=""), overwrite=T)
+
+biorm6 <- ifel(pr[[7]]>pr[[8]], pr[[8]], pr[[7]])/ifel(pr[[7]]>pr[[8]], tas[[8]], tas[[7]])
+writeRaster(biorm6, paste(path, "/biorm6_1981-2010_CH.tif", sep=""), overwrite=T)
+
+biorm7 <- (pr[[7]]+pr[[8]])/(tas[[7]]+tas[[8]])
+writeRaster(biorm7, paste(path, "/biorm7_1981-2010_CH.tif", sep=""), overwrite=T)
+
+biorm8 <-  (pr[[6]]+pr[[7]]+pr[[8]])/(tas[[6]]+tas[[7]]+tas[[8]])
+writeRaster(biorm8, paste(path, "/biorm8_1981-2010_CH.tif", sep=""), overwrite=T)
+
+biorm9 <- (pr[[5]]+pr[[6]]+pr[[7]]+pr[[8]])/(tas[[5]]+tas[[6]]+tas[[7]]+tas[[8]])
+writeRaster(biorm9, paste(path, "/biorm9_1981-2010_CH.tif", sep=""), overwrite=T)
+
+
+#E5L----
+tas <- t.e5land
+pr <- p.e5land
+path <- paste(getwd(), "/1981-2010/E5L/bio", sep = "")
+
+bio1 <- (tas[[1]]+tas[[2]]+tas[[3]]+tas[[4]]+tas[[5]]+tas[[6]]+
+           tas[[7]]+tas[[8]]+tas[[9]]+tas[[10]]+tas[[11]]+tas[[12]])/12 
+writeRaster(bio1, paste(path, "/bio1_1981-2010_E5L.tif", sep=""), overwrite=T)
+
+bio4 <- app(tas, fun = sd, na.rm=T, overwrite=T)*100
+writeRaster(bio4, paste(path, "/bio4_1981-2010_E5L.tif", sep=""), overwrite=T)
+#bio8: mean temperature of wettest quarter. 
+pq1 <- pr[[1]] + pr[[2]] + pr[[3]]
+pq2 <- pr[[2]] + pr[[3]] + pr[[4]]
+pq3 <- pr[[3]] + pr[[4]] + pr[[5]]
+pq4 <- pr[[4]] + pr[[5]] + pr[[6]]
+pq5 <- pr[[5]] + pr[[6]] + pr[[7]]
+pq6 <- pr[[6]] + pr[[7]] + pr[[8]]
+pq7 <- pr[[7]] + pr[[8]] + pr[[9]]
+pq8 <- pr[[8]] + pr[[9]] + pr[[10]]
+pq9 <- pr[[9]] + pr[[10]] + pr[[11]]
+pq10 <- pr[[10]] + pr[[11]] + pr[[12]]
+pq11 <- pr[[11]] + pr[[12]] + pr[[1]]
+pq12 <- pr[[12]] + pr[[1]] + pr[[2]]
+
+pQ <- c(pq1, pq2, pq3, pq4, pq5, pq6, pq7, pq8, pq9, pq10, pq11, pq12) #we list them
+pH <- which.max(pQ) #and find which of them is the one with the highest total rainfall
+
+#we will compute all the possible triplets for temperature
+tq1 <- (tas[[1]] + tas[[2]] + tas[[3]])/3
+tq2 <- (tas[[2]] + tas[[3]] + tas[[4]])/3
+tq3 <- (tas[[3]] + tas[[4]] + tas[[5]])/3
+tq4 <- (tas[[4]] + tas[[5]] + tas[[6]])/3
+tq5 <- (tas[[5]] + tas[[6]] + tas[[7]])/3
+tq6 <- (tas[[6]] + tas[[7]] + tas[[8]])/3
+tq7 <- (tas[[7]] + tas[[8]] + tas[[9]])/3
+tq8 <- (tas[[8]] + tas[[9]] + tas[[10]])/3
+tq9 <- (tas[[9]] + tas[[10]] + tas[[11]])/3
+tq10 <- (tas[[10]] + tas[[11]] + tas[[12]])/3
+tq11 <- (tas[[11]] + tas[[12]] + tas[[1]])/3
+tq12 <- (tas[[12]] + tas[[1]] + tas[[2]])/3
+
+tQ <- c(tq1, tq2, tq3, tq4, tq5, tq6, tq7, tq8, tq9, tq10, tq11, tq12) #we list them
+bio8 <- ifel(pH==1, tq1,ifel(pH==2, tq2, ifel(pH==3, tq3, ifel(pH==4, tq4, ifel(pH==5, tq5, ifel(pH==6, tq6, ifel(pH==7, tq7, ifel(pH==8, tq8, ifel(pH==9, tq9, ifel(pH==10, tq10, ifel(pH==11, tq11, ifel(pH==12, tq12, 0))))))))))))#and we select the quarter which has the highest rainfall
+writeRaster(bio8, paste(path, "/bio8_1981-2010_E5L.tif", sep=""), overwrite=T)
+
+pL <- which.min(pQ)
+bio9 <- ifel(pL==1, tq1, ifel(pL==2, tq2, ifel(pL==3, tq3, ifel(pL==4, tq4, ifel(pL==5, tq5, ifel(pL==6, tq6, ifel(pL==7, tq7, ifel(pL==8, tq8, ifel(pL==9, tq9, ifel(pL==10, tq10, ifel(pL==11, tq11, ifel(pL==12, tq12, 0))))))))))))
+writeRaster(bio9, paste(path, "/bio9_1981-2010_E5L.tif", sep=""), overwrite=T)
+
+bio10 <- app(tQ, fun = max, na.rm=T, overwrite=T)
+writeRaster(bio10, paste(path, "/bio10_1981-2010_E5L.tif", sep=""), overwrite=T)
+
+bio11 <- app(tQ, fun = min, na.rm=T, overwrite=T)
+writeRaster(bio11, paste(path, "/bio11_1981-2010_E5L.tif", sep=""), overwrite=T)
+
+bio12 <- pr[[1]]+pr[[2]]+pr[[3]]+pr[[4]]+pr[[5]]+pr[[6]]+
+  pr[[7]]+pr[[8]]+pr[[9]]+pr[[10]]+pr[[11]]+pr[[12]]
+writeRaster(bio12, paste(path, "/bio12_1981-2010_E5L.tif", sep=""), overwrite=T)
+
+bio13 <- app(pr, fun = max, na.rm=T, overwrite=T)
+writeRaster(bio13, paste(path, "/bio13_1981-2010_E5L.tif", sep=""), overwrite=T)
+
+bio14 <- app(pr, fun = min, na.rm=T, overwrite=T)
+writeRaster(bio14, paste(path, "/bio14_1981-2010_E5L.tif", sep=""), overwrite=T)
+
+pSD <- app(pr, fun = sd, na.rm=T, overwrite=T) #standard deviation in precipitation
+D <- 1 + (bio12/12) #average precipitation of each month. One is added to avoid too large values when bio12/12 is less than 1.
+bio15 <- pSD/D
+writeRaster(bio15, paste(path, "/bio15_1981-2010_E5L.tif", sep=""), overwrite=T)
+
+bio16 <- app(pQ, fun = max, na.rm=T, overwrite=T)
+writeRaster(bio16, paste(path, "/bio16_1981-2010_E5L.tif", sep=""), overwrite=T)
+
+bio17 <- app(pQ, fun = min, na.rm=T, overwrite=T)
+writeRaster(bio17, paste(path, "/bio17_1981-2010_E5L.tif", sep=""), overwrite=T)
+
+tH <- which.max(tQ)
+bio18 <- ifel(tH==1, pq1, ifel(tH==2, pq2, ifel(tH==3, pq3, ifel(tH==4, pq4, ifel(tH==5, pq5, ifel(tH==6, pq6, ifel(tH==7, pq7, ifel(tH==8, pq8, ifel(tH==9, pq9, ifel(tH==10, pq10, ifel(tH==11, pq11, ifel(tH==12, pq12, 0))))))))))))
+writeRaster(bio18, paste(path, "/bio18_1981-2010_E5L.tif", sep=""), overwrite=T)
+
+tL <- which.min(tQ)
+bio19 <- ifel(tL==1, pq1, ifel(tL==2, pq2, ifel(tL==3, pq3, ifel(tL==4, pq4, ifel(tL==5, pq5, ifel(tL==6, pq6, ifel(tL==7, pq7, ifel(tL==8, pq8, ifel(tL==9, pq9, ifel(tL==10, pq10, ifel(tL==11, pq11, ifel(tL==12, pq12, 0))))))))))))
+writeRaster(bio19, paste(path, "/bio19_1981-2010_E5L.tif", sep=""), overwrite=T)
+
+biorm1 <- app(tas, fun = max, na.rm=T, overwrite=T) - app(tas, fun = min, na.rm=T, overwrite=T)
+writeRaster(biorm1, paste(path, "/biorm1_1981-2010_E5L.tif", sep=""), overwrite=T)
+
+it <- 2*bio1*10 
+biorm2 <- ifel(biorm1 <= 8, it - 10*(8-biorm1), 
+               ifel(biorm1 > 18 & biorm1 < 21, it + 5*(biorm1 - 18), 
+                    ifel(biorm1 > 21 & biorm1 < 28, it + 15 + 15*(biorm1 - 21),
+                         ifel(biorm1 > 28 & biorm1 < 46, it + 15 + 105 + 25*(biorm1 - 28),
+                              ifel(biorm1 > 46, it + 15 + 105 + 450 + 30*(biorm1 - 46), it
+                              )))))
+writeRaster(biorm2, paste(path, "/biorm2_1981-2010_E5L.tif", sep=""), overwrite=T)
+
+
+biorm3 <- (ifel(tas[[1]]>0, tas[[1]], 0) +
+             ifel(tas[[2]]>0, tas[[2]], 0) +
+             ifel(tas[[3]]>0, tas[[3]], 0) +
+             ifel(tas[[4]]>0, tas[[4]], 0) +
+             ifel(tas[[5]]>0, tas[[5]], 0) +
+             ifel(tas[[6]]>0, tas[[6]], 0) +
+             ifel(tas[[7]]>0, tas[[7]], 0) +
+             ifel(tas[[8]]>0, tas[[8]], 0) +
+             ifel(tas[[9]]>0, tas[[9]], 0) +
+             ifel(tas[[10]]>0, tas[[10]], 0) +
+             ifel(tas[[11]]>0, tas[[11]], 0) +
+             ifel(tas[[12]]>0, tas[[12]], 0))*10
+writeRaster(biorm3, paste(path, "/biorm3_1981-2010_E5L.tif", sep=""), overwrite=T)
+
+biorm4 <- (ifel(tas[[1]]>0, pr[[1]], 0) +
+             ifel(tas[[2]]>0, pr[[2]], 0) +
+             ifel(tas[[3]]>0, pr[[3]], 0) +
+             ifel(tas[[4]]>0, pr[[4]], 0) +
+             ifel(tas[[5]]>0, pr[[5]], 0) +
+             ifel(tas[[6]]>0, pr[[6]], 0) +
+             ifel(tas[[7]]>0, pr[[7]], 0) +
+             ifel(tas[[8]]>0, pr[[8]], 0) +
+             ifel(tas[[9]]>0, pr[[9]], 0) +
+             ifel(tas[[10]]>0, pr[[10]], 0) +
+             ifel(tas[[11]]>0, pr[[11]], 0) +
+             ifel(tas[[12]]>0, pr[[12]], 0))
+writeRaster(biorm4, paste(path, "/biorm4_1981-2010_E5L.tif", sep=""), overwrite=T)
+
+biorm5 <- (biorm4*10)/biorm3
+writeRaster(biorm5, paste(path, "/biorm5_1981-2010_E5L.tif", sep=""), overwrite=T)
+
+biorm6 <- ifel(pr[[7]]>pr[[8]], pr[[8]], pr[[7]])/ifel(pr[[7]]>pr[[8]], tas[[8]], tas[[7]])
+writeRaster(biorm6, paste(path, "/biorm6_1981-2010_E5L.tif", sep=""), overwrite=T)
+
+biorm7 <- (pr[[7]]+pr[[8]])/(tas[[7]]+tas[[8]])
+writeRaster(biorm7, paste(path, "/biorm7_1981-2010_E5L.tif", sep=""), overwrite=T)
+
+biorm8 <-  (pr[[6]]+pr[[7]]+pr[[8]])/(tas[[6]]+tas[[7]]+tas[[8]])
+writeRaster(biorm8, paste(path, "/biorm8_1981-2010_E5L.tif", sep=""), overwrite=T)
+
+biorm9 <- (pr[[5]]+pr[[6]]+pr[[7]]+pr[[8]])/(tas[[5]]+tas[[6]]+tas[[7]]+tas[[8]])
+writeRaster(biorm9, paste(path, "/biorm9_1981-2010_E5L.tif", sep=""), overwrite=T)
+
+#GCMs----
+for(i2 in 1:26){ 
+t.path <- paste(getwd(), "/1981-2010/GCMs/tas", sep = "")
+p.path <- paste(getwd(), "/1981-2010/GCMs/pr", sep = "")
+
+tas <- rast(list.files(paste(t.path, "/", mod[[i2]], sep = ""), full.names = T))
+pr <- rast(list.files(paste(p.path, "/", mod[[i2]], sep = ""), full.names = T))
+
+save.path <- paste(getwd(), "/1981-2010/GCMs/bio/", mod[[i2]], "/", sep = "")
+  
+  bio1 <- (tas[[1]]+tas[[2]]+tas[[3]]+tas[[4]]+tas[[5]]+tas[[6]]+
+             tas[[7]]+tas[[8]]+tas[[9]]+tas[[10]]+tas[[11]]+tas[[12]])/12 
+  bio1.path <- paste(save.path, "bio1_1981-2010_", mod[[i2]], ".tif", sep="")
+  writeRaster(bio1, bio1.path, overwrite=T)
+
+  bio4 <- app(tas, fun = sd, na.rm=T, overwrite=T)*100
+  bio4.path <- paste(save.path, "bio4_1981-2010_", mod[[i2]], ".tif", sep="")
+  writeRaster(bio4, bio4.path, overwrite=T)
+
+  #bio8: mean temperature of wettest quarter.
+  pq1 <- pr[[1]] + pr[[2]] + pr[[3]]
+  pq2 <- pr[[2]] + pr[[3]] + pr[[4]]
+  pq3 <- pr[[3]] + pr[[4]] + pr[[5]]
+  pq4 <- pr[[4]] + pr[[5]] + pr[[6]]
+  pq5 <- pr[[5]] + pr[[6]] + pr[[7]]
+  pq6 <- pr[[6]] + pr[[7]] + pr[[8]]
+  pq7 <- pr[[7]] + pr[[8]] + pr[[9]]
+  pq8 <- pr[[8]] + pr[[9]] + pr[[10]]
+  pq9 <- pr[[9]] + pr[[10]] + pr[[11]]
+  pq10 <- pr[[10]] + pr[[11]] + pr[[12]]
+  pq11 <- pr[[11]] + pr[[12]] + pr[[1]]
+  pq12 <- pr[[12]] + pr[[1]] + pr[[2]]
+  
+  pQ <- c(pq1, pq2, pq3, pq4, pq5, pq6, pq7, pq8, pq9, pq10, pq11, pq12) #we list them
+  pH <- which.max(pQ) #and find which of them is the one with the highest total rainfall
+  
+  #we will compute all the possible triplets for temperature
+  tq1 <- (tas[[1]] + tas[[2]] + tas[[3]])/3
+  tq2 <- (tas[[2]] + tas[[3]] + tas[[4]])/3
+  tq3 <- (tas[[3]] + tas[[4]] + tas[[5]])/3
+  tq4 <- (tas[[4]] + tas[[5]] + tas[[6]])/3
+  tq5 <- (tas[[5]] + tas[[6]] + tas[[7]])/3
+  tq6 <- (tas[[6]] + tas[[7]] + tas[[8]])/3
+  tq7 <- (tas[[7]] + tas[[8]] + tas[[9]])/3
+  tq8 <- (tas[[8]] + tas[[9]] + tas[[10]])/3
+  tq9 <- (tas[[9]] + tas[[10]] + tas[[11]])/3
+  tq10 <- (tas[[10]] + tas[[11]] + tas[[12]])/3
+  tq11 <- (tas[[11]] + tas[[12]] + tas[[1]])/3
+  tq12 <- (tas[[12]] + tas[[1]] + tas[[2]])/3
+  
+  tQ <- c(tq1, tq2, tq3, tq4, tq5, tq6, tq7, tq8, tq9, tq10, tq11, tq12) #we list them
+  tQ <- extend(tQ, pH)
+  tQ <- resample(tQ, pH, method="bilinear")
+
+  bio8 <- ifel(pH==1, tQ[[1]],ifel(pH==2, tQ[[2]], ifel(pH==3, tQ[[3]], ifel(pH==4, tQ[[4]], ifel(pH==5, tQ[[5]], ifel(pH==6, tQ[[6]], ifel(pH==7, tQ[[7]], ifel(pH==8, tQ[[8]], ifel(pH==9, tQ[[9]], ifel(pH==10, tQ[[10]], ifel(pH==11, tQ[[11]], ifel(pH==12, tQ[[12]], 0))))))))))))#and we select the quarter which has the highest rainfall
+  bio8.path <- paste(save.path, "bio8_1981-2010_", mod[[i2]], ".tif", sep="")
+  writeRaster(bio8, bio8.path, overwrite=T)
+  
+  pL <- which.min(pQ)
+  
+  tQ <- extend(tQ, pL)
+  tQ <- resample(tQ, pL, method="bilinear")
+  
+  bio9 <- ifel(pL==1, tQ[[1]], ifel(pL==2, tQ[[2]], ifel(pL==3, tQ[[3]], ifel(pL==4, tQ[[4]], ifel(pL==5, tQ[[5]], ifel(pL==6, tQ[[6]], ifel(pL==7, tQ[[7]], ifel(pL==8, tQ[[8]], ifel(pL==9, tQ[[9]], ifel(pL==10, tQ[[10]], ifel(pL==11, tQ[[11]], ifel(pL==12, tQ[[12]], 0))))))))))))
+  bio9.path <- paste(save.path, "bio9_1981-2010_", mod[[i2]], ".tif", sep="")
+  writeRaster(bio9, bio9.path, overwrite=T)
+  
+  bio10 <- app(tQ, fun = max, na.rm=T, overwrite=T)
+  bio10.path <- paste(save.path, "bio10_1981-2010_", mod[[i2]], ".tif", sep="")
+  writeRaster(bio10, bio10.path, overwrite=T)
+  
+
+  bio11 <- app(tQ, fun = min, na.rm=T, overwrite=T)
+  bio11.path <- paste(save.path, "bio11_1981-2010_", mod[[i2]], ".tif", sep="")
+  writeRaster(bio11, bio11.path, overwrite=T)
+  
+  bio12 <- pr[[1]]+pr[[2]]+pr[[3]]+pr[[4]]+pr[[5]]+pr[[6]]+
+    pr[[7]]+pr[[8]]+pr[[9]]+pr[[10]]+pr[[11]]+pr[[12]]
+  bio12.path <- paste(save.path, "bio12_1981-2010_", mod[[i2]], ".tif", sep="")
+  writeRaster(bio12, bio12.path, overwrite=T)
+  
+  bio13 <- app(pr, fun = max, na.rm=T, overwrite=T)
+  bio13.path <- paste(save.path, "bio13_1981-2010_", mod[[i2]], ".tif", sep="")
+  writeRaster(bio13, bio13.path, overwrite=T)
+  
+  bio14 <- app(pr, fun = min, na.rm=T, overwrite=T)
+  bio14.path <- paste(save.path, "bio14_1981-2010_", mod[[i2]], ".tif", sep="")
+  writeRaster(bio14, bio14.path, overwrite=T)
+  
+  pSD <- app(pr, fun = sd, na.rm=T, overwrite=T) #standard deviation in precipitation
+  D <- 1 + (bio12/12) #average precipitation of each month. One is added to avoid too large values when bio12/12 is less than 1.
+  bio15 <- pSD/D
+  bio15.path <- paste(save.path, "bio15_1981-2010_", mod[[i2]], ".tif", sep="")
+  writeRaster(bio15, bio15.path, overwrite=T)
+  
+  bio16 <- app(pQ, fun = max, na.rm=T, overwrite=T)
+  bio16.path <- paste(save.path, "bio16_1981-2010_", mod[[i2]], ".tif", sep="")
+  writeRaster(bio16, bio16.path, overwrite=T)
+  
+  bio17 <- app(pQ, fun = min, na.rm=T, overwrite=T)
+  bio17.path <- paste(save.path, "bio17_1981-2010_", mod[[i2]], ".tif", sep="")
+  writeRaster(bio17, bio17.path, overwrite=T)
+  
+  tH <- which.max(tQ)
+  pQ_a <- extend(pQ, tH)
+  pQ_a <- resample(pQ, tH, method="bilinear")
+  
+  bio18 <- ifel(tH==1, pQ_a[[1]], ifel(tH==2, pQ_a[[2]], ifel(tH==3, pQ_a[[3]], ifel(tH==4, pQ_a[[4]], ifel(tH==5, pQ_a[[5]], ifel(tH==6, pQ_a[[6]], ifel(tH==7, pQ_a[[7]], ifel(tH==8, pQ_a[[8]], ifel(tH==9, pQ_a[[9]], ifel(tH==10, pQ_a[[10]], ifel(tH==11, pQ_a[[11]], ifel(tH==12, pQ_a[[12]], 0))))))))))))
+  bio18.path <- paste(save.path, "bio18_1981-2010_", mod[[i2]], ".tif", sep="")
+  writeRaster(bio18, bio18.path, overwrite=T)
+  
+  tL <- which.min(tQ)
+  
+  pQ_b <- extend(pQ, tL)
+  pQ_b <- resample(pQ_b, tL, method="bilinear")
+  
+  bio19 <- ifel(tL==1, pQ_b[[1]], ifel(tL==2, pQ_b[[2]], ifel(tL==3, pQ_b[[3]], ifel(tL==4, pQ_b[[4]], ifel(tL==5, pQ_b[[5]], ifel(tL==6, pQ_b[[6]], ifel(tL==7, pQ_b[[7]], ifel(tL==8, pQ_b[[8]], ifel(tL==9, pQ_b[[9]], ifel(tL==10, pQ_b[[10]], ifel(tL==11, pQ_b[[11]], ifel(tL==12, pQ_b[[12]], 0))))))))))))
+  bio19.path <- paste(save.path, "bio19_1981-2010_", mod[[i2]], ".tif", sep="")
+  writeRaster(bio19, bio19.path, overwrite=T)
+
+  biorm1 <- app(tas, fun = max, na.rm=T, overwrite=T) - app(tas, fun = min, na.rm=T, overwrite=T)
+  biorm1.path <- paste(save.path, "biorm1_1981-2010_", mod[[i2]], ".tif", sep="")
+  writeRaster(biorm1, biorm1.path, overwrite=T)
+  
+  it <- 2*bio1*10 
+  biorm2 <- ifel(biorm1 <= 8, it - 10*(8-biorm1), 
+                 ifel(biorm1 > 18 & biorm1 < 21, it + 5*(biorm1 - 18), 
+                      ifel(biorm1 > 21 & biorm1 < 28, it + 15 + 15*(biorm1 - 21),
+                           ifel(biorm1 > 28 & biorm1 < 46, it + 15 + 105 + 25*(biorm1 - 28),
+                                ifel(biorm1 > 46, it + 15 + 105 + 450 + 30*(biorm1 - 46), it
+                                )))))
+  biorm2.path <- paste(save.path, "biorm2_1981-2010_", mod[[i2]], ".tif", sep="")
+  writeRaster(biorm2, biorm2.path, overwrite=T)
+  
+  biorm3 <- (ifel(tas[[1]]>0, tas[[1]], 0) +
+               ifel(tas[[2]]>0, tas[[2]], 0) +
+               ifel(tas[[3]]>0, tas[[3]], 0) +
+               ifel(tas[[4]]>0, tas[[4]], 0) +
+               ifel(tas[[5]]>0, tas[[5]], 0) +
+               ifel(tas[[6]]>0, tas[[6]], 0) +
+               ifel(tas[[7]]>0, tas[[7]], 0) +
+               ifel(tas[[8]]>0, tas[[8]], 0) +
+               ifel(tas[[9]]>0, tas[[9]], 0) +
+               ifel(tas[[10]]>0, tas[[10]], 0) +
+               ifel(tas[[11]]>0, tas[[11]], 0) +
+               ifel(tas[[12]]>0, tas[[12]], 0))*10
+  biorm3.path <- paste(save.path, "biorm3_1981-2010_", mod[[i2]], ".tif", sep="")
+  writeRaster(biorm3, biorm3.path, overwrite=T)
+  
+  tas <- resample(tas, pr)
+  biorm4 <- (ifel(tas[[1]]>0, pr[[1]], 0) +
+               ifel(tas[[2]]>0, pr[[2]], 0) +
+               ifel(tas[[3]]>0, pr[[3]], 0) +
+               ifel(tas[[4]]>0, pr[[4]], 0) +
+               ifel(tas[[5]]>0, pr[[5]], 0) +
+               ifel(tas[[6]]>0, pr[[6]], 0) +
+               ifel(tas[[7]]>0, pr[[7]], 0) +
+               ifel(tas[[8]]>0, pr[[8]], 0) +
+               ifel(tas[[9]]>0, pr[[9]], 0) +
+               ifel(tas[[10]]>0, pr[[10]], 0) +
+               ifel(tas[[11]]>0, pr[[11]], 0) +
+               ifel(tas[[12]]>0, pr[[12]], 0))
+  biorm4.path <- paste(save.path, "biorm4_1981-2010_", mod[[i2]], ".tif", sep="")
+  writeRaster(biorm4, biorm4.path, overwrite=T)
+  
+  biorm3 <- resample(biorm3, biorm4)
+  biorm5 <- (biorm4*10)/biorm3
+  biorm5.path <- paste(save.path, "biorm5_1981-2010_", mod[[i2]], ".tif", sep="")
+  writeRaster(biorm5, biorm5.path, overwrite=T)
+  
+  biorm6 <- ifel(pr[[7]]>pr[[8]], pr[[8]], pr[[7]])/ifel(pr[[7]]>pr[[8]], tas[[8]], tas[[7]])
+  biorm6.path <- paste(save.path, "biorm6_1981-2010_", mod[[i2]], ".tif", sep="")
+  writeRaster(biorm6, biorm6.path, overwrite=T)
+  
+  biorm7 <- (pr[[7]]+pr[[8]])/(tas[[7]]+tas[[8]])
+  biorm7.path <- paste(save.path, "biorm7_1981-2010_", mod[[i2]], ".tif", sep="")
+  writeRaster(biorm7, biorm7.path, overwrite=T)
+  
+  biorm8 <-  (pr[[6]]+pr[[7]]+pr[[8]])/(tas[[6]]+tas[[7]]+tas[[8]])
+  biorm8.path <- paste(save.path, "biorm8_1981-2010_", mod[[i2]], ".tif", sep="")
+  writeRaster(biorm8, biorm8.path, overwrite=T)
+  
+  biorm9 <- (pr[[5]]+pr[[6]]+pr[[7]]+pr[[8]])/(tas[[5]]+tas[[6]]+tas[[7]]+tas[[8]])
+  biorm9.path <- paste(save.path, "biorm9_1981-2010_", mod[[i2]], ".tif", sep="")
+  writeRaster(biorm9, biorm9.path, overwrite=T)
+  gc() #clean the garbage for the subsequent loop
+}
