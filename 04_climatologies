@@ -1,0 +1,577 @@
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+
+##CLIMATOLOGIES---- 
+#Programmer: Giovanni-Breogán Ferreiro-Lera (https://linktr.ee/gferrle)
+#Last modification date: 2024/12/12
+
+#the original files were obtained from he Lawrence Livermore National Laboratory (LLNL) ESGF node (https://aims2.llnl.gov/search/cmip6/) (Accessed: 2024/12/16). 
+#then, they were assessed and downscaled through Empirical Bayesian kriging (EBK). #More details about the methods can be checked in the published papers: 
+      #1. Ferreiro-Lera et al. (2024): https://doi.org/10.3390/rs16111831; 
+      #2. Ferreiro-Lera et al. (2025): https://doi.org/10.1016/j.gloplacha.2025.104725
+
+#SETTING THW WORKING DIRECTORY-----
+
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path)) #we look for the folder in which we have saved the script
+setwd("..") #and move it one position forwards 
+
+#LIBRARIES----
+if (!require("terra")) install.packages("terra")
+library(terra)
+
+#ORGANIZING AND NAMING FILES----
+
+#creating a list twith the names of the directories
+mod <- c("+RF-MME", "ACCESS-CM2", "ACCESS-ESM1-5", "BCC-CSM2-MR", "CanESM5",  "CanESM5-CanOE", "CAS-ESM2-0", "CMCC-ESM2",  "CNRM-CM6-1", "CNRM-ESM2-1", "FGOALS-f3-L", "FIO-ESM2-0", "GFDL-ESM4", "GISS-E2-1-G", "GISS-E2-2-G", "HadGEM-GC31-LL", "INM-CM5-0", "IPSL-CM6A-LR", "KACE-1-0-G", "MCM-UA-1-0","MIROC-ES2L", "MIROC6", "MPI-ESM1-2-HR", "MPI-ESM1-2-LR", "MRI-ESM2-0", "UKES-M1-1-LL") #giving a more appropriate name to the GCMs names
+mod #to check it
+
+y <- c("2026-2050", "2051-2075", "2076-2100") #names of the first layer of directories (timeframe)
+sc <- c("ssp1-rcp26", "ssp2-rcp45", "ssp5-rcp85") #names of the second layer of directories (emission scenarios)
+v <- c("tas", "pr") #names of the third layer of directories (variables)
+month <- c("01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12")
+
+subdirs <- c("raw_data", "d_CHELSA", "d_E5L") #here is defined a new vector with the directories contained in every GCM folder
+prefix <- c("", "CH_", "E5L_") #the prefixes will be neccessary for naming the files
+biov <- c("bio", "climatologies") #here we define the directories wich will contain the bioclimatic variables
+
+#CLIMATOLOGIES (KGCS AND WBCS)---- 
+#KGCS: Köppen-Geiger climatic classification system. WBCS: Worldwide Bioclimatic Classification System
+#definitions for KGCS was obtained from here: https://doi.org/10.1038/sdata.2018.214
+#definitions for WBCS was obtained here https://doi.org.10.5616/gg110001. If the doi is not working, you can download it from here: https://www.researchgate.net/publication/234015449_Worldwide_Bioclimatic_Classification_System
+
+for(i0 in 1:3){ #i0 is used to run the loop between the different timeframes. i0 takes the following values 1: 2026-2050, 2: 2051-2075, 3: 2076-2100. 
+  for(i in 1:3){ #i is used to run the loop between the different scenarios i takes the following values 1: ssp1-rcp26, 2: ssp2-rcp45, 3: ssp5-rcp85.
+    for(i2 in 1:26){ #i2 is used to run the loop between the different GCMs i2 ranges between the model 1, correponding to the Random Forest Multi-model Ensemble (RF-MME), to the model 26 (alphabetically ordered): UKES-M1-1-LL.
+      for(i4 in 1:3){ #i4 is used to run the loop between the different methods. i4 takes the following values: 1: raw data; 2: delta versus CHELSA dataset; 3: delta versus ERA5 Land dataset. i4 will be also used for the prefixes. 
+        
+        #firstly we will list the temperature and precipitation rasters of each timeframe, scenario, GCM and method
+        t.dir <- paste(getwd(), "/", y[[i0]], "/", sc[[i]], "/", v[[1]], "/", mod[[i2]], "/", subdirs[[i4]], sep="") 
+        p.dir <- paste(getwd(), "/", y[[i0]], "/", sc[[i]], "/", v[[2]], "/", mod[[i2]], "/", subdirs[[i4]], sep="") 
+        tas <- rast(list.files(t.dir, full.names = T, pattern = ".tif"))
+        pr <- rast(list.files(p.dir, full.names = T, pattern = ".tif"))
+        #we will create the proper directories in each GCM folder of the bio directory
+        clim.dir <-  paste(getwd(), "/", y[[i0]], "/", sc[[i]], "/", biov[[2]], "/", mod[[i2]], sep = "")
+        raw_dir <- paste(clim.dir, "/", "raw_data", sep="") 
+        dir.create(raw_dir, recursive = T) 
+        fut_dir_che <- paste(clim.dir, "/", "d_CHELSA", sep = "")
+        dir.create(fut_dir_che, recursive = T) 
+        fut_dir_e5l <- paste(clim.dir, "/", "d_E5L", sep = "")
+        dir.create(fut_dir_e5l, recursive = T)
+        
+        #also it would be convenient to create a path where the files will be saved
+        save.path <- paste(clim.dir, "/", subdirs[[i4]], "/", sep="")
+        
+        #WBCS----
+        #considering the latitude of our study area, we can just have Mediterranean or Temperate macrobioclimate
+        #firstly, we should obtain the parameters that we need to discriminate between both macrobioclimates
+        #many of them can be found in the corresponding directory if we have run the previous loop, but we will create the code as if it had not happened
+        #continentality index (biorm1)
+        ic <- app(tas, fun = max, na.rm=T, overwrite=T) - app(tas, fun = min, na.rm=T, overwrite=T)
+        #ombrothermic index (biorm5)
+        io <- (ifel(tas[[1]]>0, pr[[1]], 0) + ifel(tas[[2]]>0, pr[[2]], 0) +ifel(tas[[3]]>0, pr[[3]], 0) + ifel(tas[[4]]>0, pr[[4]], 0) + ifel(tas[[5]]>0, pr[[5]], 0) + ifel(tas[[6]]>0, pr[[6]], 0) + ifel(tas[[7]]>0, pr[[7]], 0) + ifel(tas[[8]]>0, pr[[8]], 0) + ifel(tas[[9]]>0, pr[[9]], 0) + ifel(tas[[10]]>0, pr[[10]], 0) + ifel(tas[[11]]>0, pr[[11]], 0) + ifel(tas[[12]]>0, pr[[12]], 0))/(ifel(tas[[1]]>0, tas[[1]], 0) + ifel(tas[[2]]>0, tas[[2]], 0) + ifel(tas[[3]]>0, tas[[3]], 0) + ifel(tas[[4]]>0, tas[[4]], 0) + ifel(tas[[5]]>0, tas[[5]], 0) + ifel(tas[[6]]>0, tas[[6]], 0) + ifel(tas[[7]]>0, tas[[7]], 0) + ifel(tas[[8]]>0, tas[[8]], 0) + ifel(tas[[9]]>0, tas[[9]], 0) + ifel(tas[[10]]>0, tas[[10]], 0) + ifel(tas[[11]]>0, tas[[11]], 0) + ifel(tas[[12]]>0, tas[[12]], 0))
+        #ombrothermic index of the two, three and four driest consecutive months (biorm7, biorm8 and biorm9)
+        ios2 <- (pr[[7]]+pr[[8]])/(tas[[7]]+tas[[8]])
+        ios3 <- (pr[[6]]+pr[[7]]+pr[[8]])/(tas[[6]]+tas[[7]]+tas[[8]])
+        ios4 <- (pr[[5]]+pr[[6]]+pr[[7]]+pr[[8]])/(tas[[5]]+tas[[6]]+tas[[7]]+tas[[8]])
+        
+        #we will determine the regiosn that for sure has a mediterranean macrobioclimate
+        mbioc1 <- ifel(ios2 < 2, 1, 2)
+        #and then we will look forward regions where the precipitation of july and august can be compensated with the precipitation of june or may
+        comp <- ifel((ios2 < 2) & (io >= 12) & (ios2 >= 0.9) & (ios3 >= 1.7) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 11) & (io < 12) & (ios2 >= 1.0) & (ios3 >= 1.7) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 10) & (io < 11) & (ios2 >= 1.1) & (ios3 >= 1.7) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 9) & (io < 10) & (ios2 >= 1.2) & (ios3 >= 1.8) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 8) & (io < 9) & (ios2 >= 1.3) & (ios3 >= 1.8) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 7) & (io < 8) & (ios2 >= 1.4) & (ios3 >= 1.8) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 6) & (io < 7) & (ios2 >= 1.5) & (ios3 >= 1.8) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 4.8) & (io < 6) & (ios2 >= 1.7) & (ios3 >= 1.9) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 3.6) & (io < 4.8) & (ios2 >= 1.8) & (ios3 >= 1.9) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 2.8) & (io < 3.6) & (ios2 >= 1.8) & (ios3 >= 1.9) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 2) & (io < 2.8) & (ios2 >= 1.9) & (ios3 >= 2.0) & (ios4 >= 2.0),2,0)
+        #finally, we will add both layers and we will obtain all the mediterranean-cliamte areas
+        mbioc <- ifel((mbioc1 + comp < 2), 0, 1)
+        #regions where mbioc==0 are, necessarily Temperate regions
+        
+        #to obtain the mediterranean (m.) and temperate (t.) bioclimates, we should consider both Ic and Io
+        #we will asign different values to each bioclimate, which are the following:
+        #1: m. desertic oceanic (medo); 2: m. xeric oceanic (mexo); 3: m. pluviseasonal oceanic (mepo); 4: m. hyperdesertic oceanic (meho); 10: m. desertic continental (medc); 20: m. xeric continental (mexc); 30: m. pluviseasonal continental (mepc); 40: m. hyperdesertic continental (mehc); 100: t. hyperoceanic; 200: t. oceanic; 300: t. continental; 400: t. xeric.
+        #Mediterranean bioclimates
+        med_bioc <- ifel(mbioc == 1, 0, ifel(ic <= 21 & io > 2, 3, ifel(ic > 21 & io > 2, 30, ifel(ic <= 21 & io > 1 & io < 2, 2, ifel(ic > 21 & io > 1 & io < 2, 20, ifel(ic <= 21 & io > 0.2 & io < 1, 1, ifel(ic > 21 & io > 0.2 & io < 1, 10, ifel(ic <= 21 & io < 0.2, 4, 40))))))))
+        #Temperate bioclimates
+        temp_bioc <- ifel(mbioc == 0, 0, ifel(ic >= 4 & io <= 3.6, 400, ifel(ic <= 11 & io > 3.6, 100, ifel(ic > 11 & ic < 21 & io > 3.6, 200, 300))))
+        #finally we will add both layers and we save the climatologies in an appropriate directory
+        bioc <- med_bioc + temp_bioc
+        bioc.path <- paste(save.path, prefix[[i4]], "wbcs-bioclim_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], ".tif", sep="")
+        writeRaster(bioc, bioc.path, overwrite=T)
+        
+        #KGCS----
+        #firstly, we should obtain the parameters that we need to discriminate between both macrobioclimates
+        #many of them can be found in the corresponding directory if we have run the previous loop, but we will create the code as if it had not happened
+        #for temperature: mean average temperature (MAT), average temperature of coldest (Tcold) and warmest (Thot) months, number of months were average temperature is higher than 10ºC (Tm10)
+        MAT <- (tas[[1]]+tas[[2]]+tas[[3]]+tas[[4]]+tas[[5]]+tas[[6]]+tas[[7]]+tas[[8]]+tas[[9]]+tas[[10]]+tas[[11]]+tas[[12]])/12
+        Tcold <- app(tas, fun = min, na.rm=T, overwrite=T)
+        Thot <-  app(tas, fun = max, na.rm=T, overwrite=T)
+        Tm10 <- ifel(tas[[1]]>10, 1, 0) + ifel(tas[[2]]>10, 1, 0) + ifel(tas[[3]]>10, 1, 0) + ifel(tas[[4]]>10, 1, 0) + ifel(tas[[5]]>10, 1, 0) + ifel(tas[[6]]>10, 1, 0) + ifel(tas[[7]]>10, 1, 0) + ifel(tas[[8]]>10, 1, 0) + ifel(tas[[9]]>10, 1, 0) + ifel(tas[[10]]>10, 1, 0) + ifel(tas[[11]]>10, 1, 0) + ifel(tas[[12]]>10, 1, 0)
+        #for precipitation: annual precipitation (p); mean average precipitation (MAP), precipitation of the driest month (Pdry); total precipitation of winter (Pw) and summer (Ps) semester, precipitation of the driest summer (Psdry) and winter (Pwdry) semester, precipitation of the wettest summer (Pwwet) and winter semester (Pwdry) and threeshold precipitation (Pth).
+        p <- app(pr, fun = sum, na.rm=T, overwrite=T)
+        MAP <- (pr[[1]]+pr[[2]]+pr[[3]]+pr[[4]]+pr[[5]]+pr[[6]]+pr[[7]]+pr[[8]]+pr[[9]]+pr[[10]]+pr[[11]]+pr[[12]])/12
+        Pdry <- app(pr, fun = min, na.rm=T, overwrite=T)
+        S <- pr[[4:9]]
+        W <- c(pr[[1:3]], pr[[10:12]])
+        Ps <- app(S, fun = sum, na.rm=T, overwrite=T)
+        Pw <- app(W, fun = sum, na.rm=T, overwrite=T)
+        Psdry <- app(S, fun = min, na.rm=T, overwrite=T)
+        Pswet <- app(S, fun = max, na.rm=T, overwrite=T)
+        Pwdry <- app(W, fun = min, na.rm=T, overwrite=T)
+        Pwwet <- app(W, fun = max, na.rm=T, overwrite=T)
+        Pth <- ifel(Pw > 0.7*p, 2*MAT, ifel(Ps > 0.7*p, 2*MAT+28, 2*MAT+14))
+        
+        kpp_clim <- ifel(MAP<Pth, 2,
+                         ifel(Tcold>18, 1,
+                              ifel(Tcold<18 & Thot > 10, 3,
+                                   ifel(Tcold<0 & Thot > 10, 4,
+                                        ifel(Thot < 10, 5, 0)))))
+        
+        kpp_A <- ifel(kpp_clim == 2, 0,
+                      ifel(kpp_clim == 1 & Pdry>60, 11,
+                           ifel(kpp_clim == 1 & Pdry>100-(MAP/25), 12, 0)))
+        
+        kpp_B <- ifel(kpp_clim == 2 & MAP<5*Pth, 21,
+                      ifel(kpp_clim == 2 & MAP>Pth, 22, 0))
+        
+        kpp_Csw <- ifel(kpp_clim == 2, 0,
+                        ifel(kpp_clim == 3 & Psdry <40 & Psdry < Pwwet/3, 31,
+                             ifel(kpp_clim == 3 & Pwdry < Pswet/10, 32, 0)))
+        kpp_Cf <- ifel(kpp_clim == 3 & kpp_Csw != 31 & kpp_Csw != 32, 33, 0)
+        kpp_C <- kpp_Csw+kpp_Cf
+        
+        kpp_Dsw <- ifel(kpp_clim == 2, 0,
+                        ifel(kpp_clim == 4 & Psdry <40 & Psdry < Pwwet/3, 41,
+                             ifel(kpp_clim == 4 & Pwdry < Pswet/10, 42, 0)))
+        kpp_Df <- ifel(kpp_clim == 4 & kpp_Dsw != 41 & kpp_Dsw != 42, 43, 0)
+        kpp_D <- kpp_Dsw+kpp_Df
+        
+        kpp_E <- ifel(kpp_clim == 2, 0,
+                      ifel(kpp_clim == 5 & Thot > 0, 51,
+                           ifel(kpp_clim == 5 & Thot < 0, 52, 0)))
+        
+        kpp_types <- kpp_A+kpp_B+kpp_C+kpp_D+kpp_E
+        
+        kpp_subA <- kpp_A
+        kpp_subE <- kpp_E
+        
+        kpp_subB <- ifel(kpp_B == 21 & MAT >= 18, 21.1,
+                         ifel(kpp_B == 21 & MAT < 18, 21.2,
+                              ifel(kpp_B == 22 & MAT >= 18, 22.1,
+                                   ifel(kpp_B == 22 & MAT < 18, 22.2, 0))))
+        
+        kpp_subC <- ifel(kpp_C == 31 & Thot>=22, 31.1,
+                         ifel(kpp_C == 31 & Tm10>=4, 31.2,
+                              ifel(kpp_C == 31 & Tm10<4, 31.3,
+                                   ifel(kpp_C == 32 & Thot>=22, 32.1,
+                                        ifel(kpp_C == 32 & Tm10>=4, 32.2,
+                                             ifel(kpp_C == 32 & Tm10<4, 32.3,
+                                                  ifel(kpp_C == 33 & Thot>=22, 33.1,
+                                                       ifel(kpp_C == 33 & Tm10>=4, 33.2,
+                                                            ifel(kpp_C == 33 & Tm10<4, 33.3, 0)))))))))
+        
+        kpp_subD <- ifel(kpp_D == 41 & Thot>=22, 41.1,
+                         ifel(kpp_D == 41 & Tm10>=4, 41.2,
+                              ifel(kpp_D == 41 & Tm10<4, 41.3,
+                                   ifel(kpp_D == 41 & Tcold<=38, 41.4,
+                                        ifel(kpp_D == 42 & Thot>=22, 42.1,
+                                             ifel(kpp_D == 42 & Tm10>=4, 42.2,
+                                                  ifel(kpp_D == 42 & Tm10<4, 42.3,
+                                                       ifel(kpp_D == 42 & Tcold<=38, 42.4,
+                                                            ifel(kpp_D == 43 & Thot>=22, 43.1, 
+                                                                 ifel(kpp_D == 43 & Tm10>=4, 43.2,
+                                                                      ifel(kpp_D == 43 & Tm10<4, 43.3,
+                                                                           ifel(kpp_D == 43 & Tcold<=38, 43.4, 0))))))))))))
+        
+        kpp_subtypes <- kpp_subA+kpp_subE+kpp_subB+kpp_subC+kpp_subD
+        kpp.path <- paste(save.path, prefix[[i4]], "kgcs-clim_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], ".tif", sep="")
+        writeRaster(kpp_subtypes, kpp.path, overwrite=T)
+
+        gc()
+      }
+    }
+  }
+}
+
+#we´ll do the same calculations for the period 1981-2010----
+#first, for ERA5 and CHELSA
+#loading chelsa and e5l data clipped to the study area
+t.chelsa <- rast(list.files(paste(getwd(), "/1981-2010/CHELSA/tas/crop", sep=""), full.names = T))
+p.chelsa <- rast(list.files(paste(getwd(), "/1981-2010/CHELSA/pr/crop", sep=""), full.names = T)) 
+t.e5land <- rast(list.files(paste(getwd(), "/1981-2010/E5L/tas", sep=""), full.names = T)) 
+p.e5land <- rast(list.files(paste(getwd(), "/1981-2010/E5L/pr", sep=""), full.names = T))
+#CHELSA----
+tas <- t.chelsa
+pr <- p.chelsa
+path <- paste(getwd(), "/1981-2010/CHELSA/climatologies", sep = "")
+
+ic <- app(tas, fun = max, na.rm=T, overwrite=T) - app(tas, fun = min, na.rm=T, overwrite=T)
+#ombrothermic index (biorm5)
+io <- (ifel(tas[[1]]>0, pr[[1]], 0) + ifel(tas[[2]]>0, pr[[2]], 0) +ifel(tas[[3]]>0, pr[[3]], 0) + ifel(tas[[4]]>0, pr[[4]], 0) + ifel(tas[[5]]>0, pr[[5]], 0) + ifel(tas[[6]]>0, pr[[6]], 0) + ifel(tas[[7]]>0, pr[[7]], 0) + ifel(tas[[8]]>0, pr[[8]], 0) + ifel(tas[[9]]>0, pr[[9]], 0) + ifel(tas[[10]]>0, pr[[10]], 0) + ifel(tas[[11]]>0, pr[[11]], 0) + ifel(tas[[12]]>0, pr[[12]], 0))/(ifel(tas[[1]]>0, tas[[1]], 0) + ifel(tas[[2]]>0, tas[[2]], 0) + ifel(tas[[3]]>0, tas[[3]], 0) + ifel(tas[[4]]>0, tas[[4]], 0) + ifel(tas[[5]]>0, tas[[5]], 0) + ifel(tas[[6]]>0, tas[[6]], 0) + ifel(tas[[7]]>0, tas[[7]], 0) + ifel(tas[[8]]>0, tas[[8]], 0) + ifel(tas[[9]]>0, tas[[9]], 0) + ifel(tas[[10]]>0, tas[[10]], 0) + ifel(tas[[11]]>0, tas[[11]], 0) + ifel(tas[[12]]>0, tas[[12]], 0))
+#ombrothermic index of the two, three and four driest consecutive months (biorm7, biorm8 and biorm9)
+ios2 <- (pr[[7]]+pr[[8]])/(tas[[7]]+tas[[8]])
+ios3 <- (pr[[6]]+pr[[7]]+pr[[8]])/(tas[[6]]+tas[[7]]+tas[[8]])
+ios4 <- (pr[[5]]+pr[[6]]+pr[[7]]+pr[[8]])/(tas[[5]]+tas[[6]]+tas[[7]]+tas[[8]])
+
+#we will determine the regiosn that for sure has a mediterranean macrobioclimate
+mbioc1 <- ifel(ios2 < 2, 1, 2)
+#and then we will look forward regions where the precipitation of july and august can be compensated with the precipitation of june or may
+comp <- ifel((ios2 < 2) & (io >= 12) & (ios2 >= 0.9) & (ios3 >= 1.7) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 11) & (io < 12) & (ios2 >= 1.0) & (ios3 >= 1.7) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 10) & (io < 11) & (ios2 >= 1.1) & (ios3 >= 1.7) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 9) & (io < 10) & (ios2 >= 1.2) & (ios3 >= 1.8) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 8) & (io < 9) & (ios2 >= 1.3) & (ios3 >= 1.8) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 7) & (io < 8) & (ios2 >= 1.4) & (ios3 >= 1.8) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 6) & (io < 7) & (ios2 >= 1.5) & (ios3 >= 1.8) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 4.8) & (io < 6) & (ios2 >= 1.7) & (ios3 >= 1.9) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 3.6) & (io < 4.8) & (ios2 >= 1.8) & (ios3 >= 1.9) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 2.8) & (io < 3.6) & (ios2 >= 1.8) & (ios3 >= 1.9) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 2) & (io < 2.8) & (ios2 >= 1.9) & (ios3 >= 2.0) & (ios4 >= 2.0),2,0)
+#finally, we will add both layers and we will obtain all the mediterranean-cliamte areas
+mbioc <- ifel((mbioc1 + comp < 2), 0, 1)
+#regions where mbioc==0 are, necessarily Temperate regions
+
+#to obtain the mediterranean (m.) and temperate (t.) bioclimates, we should consider both Ic and Io
+#we will asign different values to each bioclimate, which are the following:
+#1: m. desertic oceanic (medo); 2: m. xeric oceanic (mexo); 3: m. pluviseasonal oceanic (mepo); 4: m. hyperdesertic oceanic (meho); 10: m. desertic continental (medc); 20: m. xeric continental (mexc); 30: m. pluviseasonal continental (mepc); 40: m. hyperdesertic continental (mehc); 100: t. hyperoceanic; 200: t. oceanic; 300: t. continental; 400: t. xeric.
+#Mediterranean bioclimates
+med_bioc <- ifel(mbioc == 1, 0, ifel(ic <= 21 & io > 2, 3, ifel(ic > 21 & io > 2, 30, ifel(ic <= 21 & io > 1 & io < 2, 2, ifel(ic > 21 & io > 1 & io < 2, 20, ifel(ic <= 21 & io > 0.2 & io < 1, 1, ifel(ic > 21 & io > 0.2 & io < 1, 10, ifel(ic <= 21 & io < 0.2, 4, 40))))))))
+#Temperate bioclimates
+temp_bioc <- ifel(mbioc == 0, 0, ifel(ic >= 4 & io <= 3.6, 400, ifel(ic <= 11 & io > 3.6, 100, ifel(ic > 11 & ic < 21 & io > 3.6, 200, 300))))
+#finally we will add both layers and we save the climatologies in an appropriate directory
+bioc <- med_bioc + temp_bioc
+bioc.path <- paste(path, "/wbcs-bioclim_", "1981-2010", "_CH", ".tif", sep="")
+writeRaster(bioc, bioc.path, overwrite=T)
+
+#KGCS----
+#firstly, we should obtain the parameters that we need to discriminate between both macrobioclimates
+#many of them can be found in the corresponding directory if we have run the previous loop, but we will create the code as if it had not happened
+#for temperature: mean average temperature (MAT), average temperature of coldest (Tcold) and warmest (Thot) months, number of months were average temperature is higher than 10ºC (Tm10)
+MAT <- (tas[[1]]+tas[[2]]+tas[[3]]+tas[[4]]+tas[[5]]+tas[[6]]+tas[[7]]+tas[[8]]+tas[[9]]+tas[[10]]+tas[[11]]+tas[[12]])/12
+Tcold <- app(tas, fun = min, na.rm=T, overwrite=T)
+Thot <-  app(tas, fun = max, na.rm=T, overwrite=T)
+Tm10 <- ifel(tas[[1]]>10, 1, 0) + ifel(tas[[2]]>10, 1, 0) + ifel(tas[[3]]>10, 1, 0) + ifel(tas[[4]]>10, 1, 0) + ifel(tas[[5]]>10, 1, 0) + ifel(tas[[6]]>10, 1, 0) + ifel(tas[[7]]>10, 1, 0) + ifel(tas[[8]]>10, 1, 0) + ifel(tas[[9]]>10, 1, 0) + ifel(tas[[10]]>10, 1, 0) + ifel(tas[[11]]>10, 1, 0) + ifel(tas[[12]]>10, 1, 0)
+#for precipitation: annual precipitation (p); mean average precipitation (MAP), precipitation of the driest month (Pdry); total precipitation of winter (Pw) and summer (Ps) semester, precipitation of the driest summer (Psdry) and winter (Pwdry) semester, precipitation of the wettest summer (Pwwet) and winter semester (Pwdry) and threeshold precipitation (Pth).
+p <- app(pr, fun = sum, na.rm=T, overwrite=T)
+MAP <- (pr[[1]]+pr[[2]]+pr[[3]]+pr[[4]]+pr[[5]]+pr[[6]]+pr[[7]]+pr[[8]]+pr[[9]]+pr[[10]]+pr[[11]]+pr[[12]])/12
+Pdry <- app(pr, fun = min, na.rm=T, overwrite=T)
+S <- pr[[4:9]]
+W <- c(pr[[1:3]], pr[[10:12]])
+Ps <- app(S, fun = sum, na.rm=T, overwrite=T)
+Pw <- app(W, fun = sum, na.rm=T, overwrite=T)
+Psdry <- app(S, fun = min, na.rm=T, overwrite=T)
+Pswet <- app(S, fun = max, na.rm=T, overwrite=T)
+Pwdry <- app(W, fun = min, na.rm=T, overwrite=T)
+Pwwet <- app(W, fun = max, na.rm=T, overwrite=T)
+Pth <- ifel(Pw > 0.7*p, 2*MAT, ifel(Ps > 0.7*p, 2*MAT+28, 2*MAT+14))
+
+kpp_clim <- ifel(MAP<Pth, 2,
+                 ifel(Tcold>18, 1,
+                      ifel(Tcold<18 & Thot > 10, 3,
+                           ifel(Tcold<0 & Thot > 10, 4,
+                                ifel(Thot < 10, 5, 0)))))
+
+kpp_A <- ifel(kpp_clim == 2, 0,
+              ifel(kpp_clim == 1 & Pdry>60, 11,
+                   ifel(kpp_clim == 1 & Pdry>100-(MAP/25), 12, 0)))
+
+kpp_B <- ifel(kpp_clim == 2 & MAP<5*Pth, 21,
+              ifel(kpp_clim == 2 & MAP>Pth, 22, 0))
+
+kpp_Csw <- ifel(kpp_clim == 2, 0,
+                ifel(kpp_clim == 3 & Psdry <40 & Psdry < Pwwet/3, 31,
+                     ifel(kpp_clim == 3 & Pwdry < Pswet/10, 32, 0)))
+kpp_Cf <- ifel(kpp_clim == 3 & kpp_Csw != 31 & kpp_Csw != 32, 33, 0)
+kpp_C <- kpp_Csw+kpp_Cf
+
+kpp_Dsw <- ifel(kpp_clim == 2, 0,
+                ifel(kpp_clim == 4 & Psdry <40 & Psdry < Pwwet/3, 41,
+                     ifel(kpp_clim == 4 & Pwdry < Pswet/10, 42, 0)))
+kpp_Df <- ifel(kpp_clim == 4 & kpp_Dsw != 41 & kpp_Dsw != 42, 43, 0)
+kpp_D <- kpp_Dsw+kpp_Df
+
+kpp_E <- ifel(kpp_clim == 2, 0,
+              ifel(kpp_clim == 5 & Thot > 0, 51,
+                   ifel(kpp_clim == 5 & Thot < 0, 52, 0)))
+
+kpp_types <- kpp_A+kpp_B+kpp_C+kpp_D+kpp_E
+
+kpp_subA <- kpp_A
+kpp_subE <- kpp_E
+
+kpp_subB <- ifel(kpp_B == 21 & MAT >= 18, 21.1,
+                 ifel(kpp_B == 21 & MAT < 18, 21.2,
+                      ifel(kpp_B == 22 & MAT >= 18, 22.1,
+                           ifel(kpp_B == 22 & MAT < 18, 22.2, 0))))
+
+kpp_subC <- ifel(kpp_C == 31 & Thot>=22, 31.1,
+                 ifel(kpp_C == 31 & Tm10>=4, 31.2,
+                      ifel(kpp_C == 31 & Tm10<4, 31.3,
+                           ifel(kpp_C == 32 & Thot>=22, 32.1,
+                                ifel(kpp_C == 32 & Tm10>=4, 32.2,
+                                     ifel(kpp_C == 32 & Tm10<4, 32.3,
+                                          ifel(kpp_C == 33 & Thot>=22, 33.1,
+                                               ifel(kpp_C == 33 & Tm10>=4, 33.2,
+                                                    ifel(kpp_C == 33 & Tm10<4, 33.3, 0)))))))))
+
+kpp_subD <- ifel(kpp_D == 41 & Thot>=22, 41.1,
+                 ifel(kpp_D == 41 & Tm10>=4, 41.2,
+                      ifel(kpp_D == 41 & Tm10<4, 41.3,
+                           ifel(kpp_D == 41 & Tcold<=38, 41.4,
+                                ifel(kpp_D == 42 & Thot>=22, 42.1,
+                                     ifel(kpp_D == 42 & Tm10>=4, 42.2,
+                                          ifel(kpp_D == 42 & Tm10<4, 42.3,
+                                               ifel(kpp_D == 42 & Tcold<=38, 42.4,
+                                                    ifel(kpp_D == 43 & Thot>=22, 43.1, 
+                                                         ifel(kpp_D == 43 & Tm10>=4, 43.2,
+                                                              ifel(kpp_D == 43 & Tm10<4, 43.3,
+                                                                   ifel(kpp_D == 43 & Tcold<=38, 43.4, 0))))))))))))
+
+kpp_subtypes <- kpp_subA+kpp_subE+kpp_subB+kpp_subC+kpp_subD
+bioc.path <- paste(path, "/kgcs-bioclim_", "1981-2010", "_CH", ".tif", sep="")
+writeRaster(kpp_subtypes, bioc.path, overwrite=T)
+
+
+#E5L----
+tas <- t.e5land
+pr <- p.e5land
+path <- paste(getwd(), "/1981-2010/E5L/climatologies/", sep = "")
+
+ic <- app(tas, fun = max, na.rm=T, overwrite=T) - app(tas, fun = min, na.rm=T, overwrite=T)
+#ombrothermic index (biorm5)
+io <- (ifel(tas[[1]]>0, pr[[1]], 0) + ifel(tas[[2]]>0, pr[[2]], 0) +ifel(tas[[3]]>0, pr[[3]], 0) + ifel(tas[[4]]>0, pr[[4]], 0) + ifel(tas[[5]]>0, pr[[5]], 0) + ifel(tas[[6]]>0, pr[[6]], 0) + ifel(tas[[7]]>0, pr[[7]], 0) + ifel(tas[[8]]>0, pr[[8]], 0) + ifel(tas[[9]]>0, pr[[9]], 0) + ifel(tas[[10]]>0, pr[[10]], 0) + ifel(tas[[11]]>0, pr[[11]], 0) + ifel(tas[[12]]>0, pr[[12]], 0))/(ifel(tas[[1]]>0, tas[[1]], 0) + ifel(tas[[2]]>0, tas[[2]], 0) + ifel(tas[[3]]>0, tas[[3]], 0) + ifel(tas[[4]]>0, tas[[4]], 0) + ifel(tas[[5]]>0, tas[[5]], 0) + ifel(tas[[6]]>0, tas[[6]], 0) + ifel(tas[[7]]>0, tas[[7]], 0) + ifel(tas[[8]]>0, tas[[8]], 0) + ifel(tas[[9]]>0, tas[[9]], 0) + ifel(tas[[10]]>0, tas[[10]], 0) + ifel(tas[[11]]>0, tas[[11]], 0) + ifel(tas[[12]]>0, tas[[12]], 0))
+#ombrothermic index of the two, three and four driest consecutive months (biorm7, biorm8 and biorm9)
+ios2 <- (pr[[7]]+pr[[8]])/(tas[[7]]+tas[[8]])
+ios3 <- (pr[[6]]+pr[[7]]+pr[[8]])/(tas[[6]]+tas[[7]]+tas[[8]])
+ios4 <- (pr[[5]]+pr[[6]]+pr[[7]]+pr[[8]])/(tas[[5]]+tas[[6]]+tas[[7]]+tas[[8]])
+
+#we will determine the regiosn that for sure has a mediterranean macrobioclimate
+mbioc1 <- ifel(ios2 < 2, 1, 2)
+#and then we will look forward regions where the precipitation of july and august can be compensated with the precipitation of june or may
+comp <- ifel((ios2 < 2) & (io >= 12) & (ios2 >= 0.9) & (ios3 >= 1.7) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 11) & (io < 12) & (ios2 >= 1.0) & (ios3 >= 1.7) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 10) & (io < 11) & (ios2 >= 1.1) & (ios3 >= 1.7) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 9) & (io < 10) & (ios2 >= 1.2) & (ios3 >= 1.8) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 8) & (io < 9) & (ios2 >= 1.3) & (ios3 >= 1.8) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 7) & (io < 8) & (ios2 >= 1.4) & (ios3 >= 1.8) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 6) & (io < 7) & (ios2 >= 1.5) & (ios3 >= 1.8) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 4.8) & (io < 6) & (ios2 >= 1.7) & (ios3 >= 1.9) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 3.6) & (io < 4.8) & (ios2 >= 1.8) & (ios3 >= 1.9) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 2.8) & (io < 3.6) & (ios2 >= 1.8) & (ios3 >= 1.9) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 2) & (io < 2.8) & (ios2 >= 1.9) & (ios3 >= 2.0) & (ios4 >= 2.0),2,0)
+#finally, we will add both layers and we will obtain all the mediterranean-cliamte areas
+mbioc <- ifel((mbioc1 + comp < 2), 0, 1)
+#regions where mbioc==0 are, necessarily Temperate regions
+
+#to obtain the mediterranean (m.) and temperate (t.) bioclimates, we should consider both Ic and Io
+#we will asign different values to each bioclimate, which are the following:
+#1: m. desertic oceanic (medo); 2: m. xeric oceanic (mexo); 3: m. pluviseasonal oceanic (mepo); 4: m. hyperdesertic oceanic (meho); 10: m. desertic continental (medc); 20: m. xeric continental (mexc); 30: m. pluviseasonal continental (mepc); 40: m. hyperdesertic continental (mehc); 100: t. hyperoceanic; 200: t. oceanic; 300: t. continental; 400: t. xeric.
+#Mediterranean bioclimates
+med_bioc <- ifel(mbioc == 1, 0, ifel(ic <= 21 & io > 2, 3, ifel(ic > 21 & io > 2, 30, ifel(ic <= 21 & io > 1 & io < 2, 2, ifel(ic > 21 & io > 1 & io < 2, 20, ifel(ic <= 21 & io > 0.2 & io < 1, 1, ifel(ic > 21 & io > 0.2 & io < 1, 10, ifel(ic <= 21 & io < 0.2, 4, 40))))))))
+#Temperate bioclimates
+temp_bioc <- ifel(mbioc == 0, 0, ifel(ic >= 4 & io <= 3.6, 400, ifel(ic <= 11 & io > 3.6, 100, ifel(ic > 11 & ic < 21 & io > 3.6, 200, 300))))
+#finally we will add both layers and we save the climatologies in an appropriate directory
+bioc <- med_bioc + temp_bioc
+bioc.path <- paste(path, "wbcs-bioclim_", "1981-2010", "_E5L", ".tif", sep="")
+writeRaster(bioc, bioc.path, overwrite=T)
+
+#KGCS
+#firstly, we should obtain the parameters that we need to discriminate between both macrobioclimates
+#many of them can be found in the corresponding directory if we have run the previous loop, but we will create the code as if it had not happened
+#for temperature: mean average temperature (MAT), average temperature of coldest (Tcold) and warmest (Thot) months, number of months were average temperature is higher than 10ºC (Tm10)
+MAT <- (tas[[1]]+tas[[2]]+tas[[3]]+tas[[4]]+tas[[5]]+tas[[6]]+tas[[7]]+tas[[8]]+tas[[9]]+tas[[10]]+tas[[11]]+tas[[12]])/12
+Tcold <- app(tas, fun = min, na.rm=T, overwrite=T)
+Thot <-  app(tas, fun = max, na.rm=T, overwrite=T)
+Tm10 <- ifel(tas[[1]]>10, 1, 0) + ifel(tas[[2]]>10, 1, 0) + ifel(tas[[3]]>10, 1, 0) + ifel(tas[[4]]>10, 1, 0) + ifel(tas[[5]]>10, 1, 0) + ifel(tas[[6]]>10, 1, 0) + ifel(tas[[7]]>10, 1, 0) + ifel(tas[[8]]>10, 1, 0) + ifel(tas[[9]]>10, 1, 0) + ifel(tas[[10]]>10, 1, 0) + ifel(tas[[11]]>10, 1, 0) + ifel(tas[[12]]>10, 1, 0)
+#for precipitation: annual precipitation (p); mean average precipitation (MAP), precipitation of the driest month (Pdry); total precipitation of winter (Pw) and summer (Ps) semester, precipitation of the driest summer (Psdry) and winter (Pwdry) semester, precipitation of the wettest summer (Pwwet) and winter semester (Pwdry) and threeshold precipitation (Pth).
+p <- app(pr, fun = sum, na.rm=T, overwrite=T)
+MAP <- (pr[[1]]+pr[[2]]+pr[[3]]+pr[[4]]+pr[[5]]+pr[[6]]+pr[[7]]+pr[[8]]+pr[[9]]+pr[[10]]+pr[[11]]+pr[[12]])/12
+Pdry <- app(pr, fun = min, na.rm=T, overwrite=T)
+S <- pr[[4:9]]
+W <- c(pr[[1:3]], pr[[10:12]])
+Ps <- app(S, fun = sum, na.rm=T, overwrite=T)
+Pw <- app(W, fun = sum, na.rm=T, overwrite=T)
+Psdry <- app(S, fun = min, na.rm=T, overwrite=T)
+Pswet <- app(S, fun = max, na.rm=T, overwrite=T)
+Pwdry <- app(W, fun = min, na.rm=T, overwrite=T)
+Pwwet <- app(W, fun = max, na.rm=T, overwrite=T)
+Pth <- ifel(Pw > 0.7*p, 2*MAT, ifel(Ps > 0.7*p, 2*MAT+28, 2*MAT+14))
+
+kpp_clim <- ifel(MAP<Pth, 2,
+                 ifel(Tcold>18, 1,
+                      ifel(Tcold<18 & Thot > 10, 3,
+                           ifel(Tcold<0 & Thot > 10, 4,
+                                ifel(Thot < 10, 5, 0)))))
+
+kpp_A <- ifel(kpp_clim == 2, 0,
+              ifel(kpp_clim == 1 & Pdry>60, 11,
+                   ifel(kpp_clim == 1 & Pdry>100-(MAP/25), 12, 0)))
+
+kpp_B <- ifel(kpp_clim == 2 & MAP<5*Pth, 21,
+              ifel(kpp_clim == 2 & MAP>Pth, 22, 0))
+
+kpp_Csw <- ifel(kpp_clim == 2, 0,
+                ifel(kpp_clim == 3 & Psdry <40 & Psdry < Pwwet/3, 31,
+                     ifel(kpp_clim == 3 & Pwdry < Pswet/10, 32, 0)))
+kpp_Cf <- ifel(kpp_clim == 3 & kpp_Csw != 31 & kpp_Csw != 32, 33, 0)
+kpp_C <- kpp_Csw+kpp_Cf
+
+kpp_Dsw <- ifel(kpp_clim == 2, 0,
+                ifel(kpp_clim == 4 & Psdry <40 & Psdry < Pwwet/3, 41,
+                     ifel(kpp_clim == 4 & Pwdry < Pswet/10, 42, 0)))
+kpp_Df <- ifel(kpp_clim == 4 & kpp_Dsw != 41 & kpp_Dsw != 42, 43, 0)
+kpp_D <- kpp_Dsw+kpp_Df
+
+kpp_E <- ifel(kpp_clim == 2, 0,
+              ifel(kpp_clim == 5 & Thot > 0, 51,
+                   ifel(kpp_clim == 5 & Thot < 0, 52, 0)))
+
+kpp_types <- kpp_A+kpp_B+kpp_C+kpp_D+kpp_E
+
+kpp_subA <- kpp_A
+kpp_subE <- kpp_E
+
+kpp_subB <- ifel(kpp_B == 21 & MAT >= 18, 21.1,
+                 ifel(kpp_B == 21 & MAT < 18, 21.2,
+                      ifel(kpp_B == 22 & MAT >= 18, 22.1,
+                           ifel(kpp_B == 22 & MAT < 18, 22.2, 0))))
+
+kpp_subC <- ifel(kpp_C == 31 & Thot>=22, 31.1,
+                 ifel(kpp_C == 31 & Tm10>=4, 31.2,
+                      ifel(kpp_C == 31 & Tm10<4, 31.3,
+                           ifel(kpp_C == 32 & Thot>=22, 32.1,
+                                ifel(kpp_C == 32 & Tm10>=4, 32.2,
+                                     ifel(kpp_C == 32 & Tm10<4, 32.3,
+                                          ifel(kpp_C == 33 & Thot>=22, 33.1,
+                                               ifel(kpp_C == 33 & Tm10>=4, 33.2,
+                                                    ifel(kpp_C == 33 & Tm10<4, 33.3, 0)))))))))
+
+kpp_subD <- ifel(kpp_D == 41 & Thot>=22, 41.1,
+                 ifel(kpp_D == 41 & Tm10>=4, 41.2,
+                      ifel(kpp_D == 41 & Tm10<4, 41.3,
+                           ifel(kpp_D == 41 & Tcold<=38, 41.4,
+                                ifel(kpp_D == 42 & Thot>=22, 42.1,
+                                     ifel(kpp_D == 42 & Tm10>=4, 42.2,
+                                          ifel(kpp_D == 42 & Tm10<4, 42.3,
+                                               ifel(kpp_D == 42 & Tcold<=38, 42.4,
+                                                    ifel(kpp_D == 43 & Thot>=22, 43.1, 
+                                                         ifel(kpp_D == 43 & Tm10>=4, 43.2,
+                                                              ifel(kpp_D == 43 & Tm10<4, 43.3,
+                                                                   ifel(kpp_D == 43 & Tcold<=38, 43.4, 0))))))))))))
+
+kpp_subtypes <- kpp_subA+kpp_subE+kpp_subB+kpp_subC+kpp_subD
+bioc.path <- paste(path, "kgcs-bioclim_", "1981-2010", "_E5L", ".tif", sep="")
+writeRaster(kpp_subtypes, bioc.path, overwrite=T)
+
+#GCMs----
+for(i2 in 1:26){ 
+  t.path <- paste(getwd(), "/1981-2010/GCMs/tas", sep = "")
+  p.path <- paste(getwd(), "/1981-2010/GCMs/pr", sep = "")
+  
+  tas <- rast(list.files(paste(t.path, "/", mod[[i2]], sep = ""), full.names = T))
+  pr <- rast(list.files(paste(p.path, "/", mod[[i2]], sep = ""), full.names = T))
+  pr <- resample(pr, tas)
+  
+  save.path <- paste(getwd(), "/1981-2010/GCMs/climatologies/", mod[[i2]], "/", sep = "")
+  
+  ic <- app(tas, fun = max, na.rm=T, overwrite=T) - app(tas, fun = min, na.rm=T, overwrite=T)
+  #ombrothermic index (biorm5)
+  io <- (ifel(tas[[1]]>0, pr[[1]], 0) + ifel(tas[[2]]>0, pr[[2]], 0) +ifel(tas[[3]]>0, pr[[3]], 0) + ifel(tas[[4]]>0, pr[[4]], 0) + ifel(tas[[5]]>0, pr[[5]], 0) + ifel(tas[[6]]>0, pr[[6]], 0) + ifel(tas[[7]]>0, pr[[7]], 0) + ifel(tas[[8]]>0, pr[[8]], 0) + ifel(tas[[9]]>0, pr[[9]], 0) + ifel(tas[[10]]>0, pr[[10]], 0) + ifel(tas[[11]]>0, pr[[11]], 0) + ifel(tas[[12]]>0, pr[[12]], 0))/(ifel(tas[[1]]>0, tas[[1]], 0) + ifel(tas[[2]]>0, tas[[2]], 0) + ifel(tas[[3]]>0, tas[[3]], 0) + ifel(tas[[4]]>0, tas[[4]], 0) + ifel(tas[[5]]>0, tas[[5]], 0) + ifel(tas[[6]]>0, tas[[6]], 0) + ifel(tas[[7]]>0, tas[[7]], 0) + ifel(tas[[8]]>0, tas[[8]], 0) + ifel(tas[[9]]>0, tas[[9]], 0) + ifel(tas[[10]]>0, tas[[10]], 0) + ifel(tas[[11]]>0, tas[[11]], 0) + ifel(tas[[12]]>0, tas[[12]], 0))
+  #ombrothermic index of the two, three and four driest consecutive months (biorm7, biorm8 and biorm9)
+  ios2 <- (pr[[7]]+pr[[8]])/(tas[[7]]+tas[[8]])
+  ios3 <- (pr[[6]]+pr[[7]]+pr[[8]])/(tas[[6]]+tas[[7]]+tas[[8]])
+  ios4 <- (pr[[5]]+pr[[6]]+pr[[7]]+pr[[8]])/(tas[[5]]+tas[[6]]+tas[[7]]+tas[[8]])
+  
+  #we will determine the regiosn that for sure has a mediterranean macrobioclimate
+  mbioc1 <- ifel(ios2 < 2, 1, 2)
+  #and then we will look forward regions where the precipitation of july and august can be compensated with the precipitation of june or may
+  comp <- ifel((ios2 < 2) & (io >= 12) & (ios2 >= 0.9) & (ios3 >= 1.7) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 11) & (io < 12) & (ios2 >= 1.0) & (ios3 >= 1.7) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 10) & (io < 11) & (ios2 >= 1.1) & (ios3 >= 1.7) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 9) & (io < 10) & (ios2 >= 1.2) & (ios3 >= 1.8) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 8) & (io < 9) & (ios2 >= 1.3) & (ios3 >= 1.8) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 7) & (io < 8) & (ios2 >= 1.4) & (ios3 >= 1.8) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 6) & (io < 7) & (ios2 >= 1.5) & (ios3 >= 1.8) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 4.8) & (io < 6) & (ios2 >= 1.7) & (ios3 >= 1.9) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 3.6) & (io < 4.8) & (ios2 >= 1.8) & (ios3 >= 1.9) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 2.8) & (io < 3.6) & (ios2 >= 1.8) & (ios3 >= 1.9) & (ios4 >= 2.0),2,0) + ifel((ios2 < 2) & (io >= 2) & (io < 2.8) & (ios2 >= 1.9) & (ios3 >= 2.0) & (ios4 >= 2.0),2,0)
+  #finally, we will add both layers and we will obtain all the mediterranean-cliamte areas
+  mbioc <- ifel((mbioc1 + comp < 2), 0, 1)
+  #regions where mbioc==0 are, necessarily Temperate regions
+  
+  #to obtain the mediterranean (m.) and temperate (t.) bioclimates, we should consider both Ic and Io
+  #we will asign different values to each bioclimate, which are the following:
+  #1: m. desertic oceanic (medo); 2: m. xeric oceanic (mexo); 3: m. pluviseasonal oceanic (mepo); 4: m. hyperdesertic oceanic (meho); 10: m. desertic continental (medc); 20: m. xeric continental (mexc); 30: m. pluviseasonal continental (mepc); 40: m. hyperdesertic continental (mehc); 100: t. hyperoceanic; 200: t. oceanic; 300: t. continental; 400: t. xeric.
+  #Mediterranean bioclimates
+  med_bioc <- ifel(mbioc == 1, 0, ifel(ic <= 21 & io > 2, 3, ifel(ic > 21 & io > 2, 30, ifel(ic <= 21 & io > 1 & io < 2, 2, ifel(ic > 21 & io > 1 & io < 2, 20, ifel(ic <= 21 & io > 0.2 & io < 1, 1, ifel(ic > 21 & io > 0.2 & io < 1, 10, ifel(ic <= 21 & io < 0.2, 4, 40))))))))
+  #Temperate bioclimates
+  temp_bioc <- ifel(mbioc == 0, 0, ifel(ic >= 4 & io <= 3.6, 400, ifel(ic <= 11 & io > 3.6, 100, ifel(ic > 11 & ic < 21 & io > 3.6, 200, 300))))
+  #finally we will add both layers and we save the climatologies in an appropriate directory
+  bioc <- med_bioc + temp_bioc
+  bioc.path <- paste(save.path, "wbcs_1981-2010_", mod[[i2]], ".tif", sep="")
+  writeRaster(bioc, bioc.path, overwrite=T)
+  gc() #clean the garbage for the subsequent loop
+  
+  
+  MAT <- (tas[[1]]+tas[[2]]+tas[[3]]+tas[[4]]+tas[[5]]+tas[[6]]+tas[[7]]+tas[[8]]+tas[[9]]+tas[[10]]+tas[[11]]+tas[[12]])/12
+  Tcold <- app(tas, fun = min, na.rm=T, overwrite=T)
+  Thot <-  app(tas, fun = max, na.rm=T, overwrite=T)
+  Tm10 <- ifel(tas[[1]]>10, 1, 0) + ifel(tas[[2]]>10, 1, 0) + ifel(tas[[3]]>10, 1, 0) + ifel(tas[[4]]>10, 1, 0) + ifel(tas[[5]]>10, 1, 0) + ifel(tas[[6]]>10, 1, 0) + ifel(tas[[7]]>10, 1, 0) + ifel(tas[[8]]>10, 1, 0) + ifel(tas[[9]]>10, 1, 0) + ifel(tas[[10]]>10, 1, 0) + ifel(tas[[11]]>10, 1, 0) + ifel(tas[[12]]>10, 1, 0)
+  #for precipitation: annual precipitation (p); mean average precipitation (MAP), precipitation of the driest month (Pdry); total precipitation of winter (Pw) and summer (Ps) semester, precipitation of the driest summer (Psdry) and winter (Pwdry) semester, precipitation of the wettest summer (Pwwet) and winter semester (Pwdry) and threeshold precipitation (Pth).
+  p <- app(pr, fun = sum, na.rm=T, overwrite=T)
+  MAP <- (pr[[1]]+pr[[2]]+pr[[3]]+pr[[4]]+pr[[5]]+pr[[6]]+pr[[7]]+pr[[8]]+pr[[9]]+pr[[10]]+pr[[11]]+pr[[12]])/12
+  Pdry <- app(pr, fun = min, na.rm=T, overwrite=T)
+  S <- pr[[4:9]]
+  W <- c(pr[[1:3]], pr[[10:12]])
+  Ps <- app(S, fun = sum, na.rm=T, overwrite=T)
+  Pw <- app(W, fun = sum, na.rm=T, overwrite=T)
+  Psdry <- app(S, fun = min, na.rm=T, overwrite=T)
+  Pswet <- app(S, fun = max, na.rm=T, overwrite=T)
+  Pwdry <- app(W, fun = min, na.rm=T, overwrite=T)
+  Pwwet <- app(W, fun = max, na.rm=T, overwrite=T)
+  Pth <- ifel(Pw > 0.7*p, 2*MAT, ifel(Ps > 0.7*p, 2*MAT+28, 2*MAT+14))
+  
+  kpp_clim <- ifel(MAP<Pth, 2,
+                   ifel(Tcold>18, 1,
+                        ifel(Tcold<18 & Thot > 10, 3,
+                             ifel(Tcold<0 & Thot > 10, 4,
+                                  ifel(Thot < 10, 5, 0)))))
+  
+  kpp_A <- ifel(kpp_clim == 2, 0,
+                ifel(kpp_clim == 1 & Pdry>60, 11,
+                     ifel(kpp_clim == 1 & Pdry>100-(MAP/25), 12, 0)))
+  
+  kpp_B <- ifel(kpp_clim == 2 & MAP<5*Pth, 21,
+                ifel(kpp_clim == 2 & MAP>Pth, 22, 0))
+  
+  kpp_Csw <- ifel(kpp_clim == 2, 0,
+                  ifel(kpp_clim == 3 & Psdry <40 & Psdry < Pwwet/3, 31,
+                       ifel(kpp_clim == 3 & Pwdry < Pswet/10, 32, 0)))
+  kpp_Cf <- ifel(kpp_clim == 3 & kpp_Csw != 31 & kpp_Csw != 32, 33, 0)
+  kpp_C <- kpp_Csw+kpp_Cf
+  
+  kpp_Dsw <- ifel(kpp_clim == 2, 0,
+                  ifel(kpp_clim == 4 & Psdry <40 & Psdry < Pwwet/3, 41,
+                       ifel(kpp_clim == 4 & Pwdry < Pswet/10, 42, 0)))
+  kpp_Df <- ifel(kpp_clim == 4 & kpp_Dsw != 41 & kpp_Dsw != 42, 43, 0)
+  kpp_D <- kpp_Dsw+kpp_Df
+  
+  kpp_E <- ifel(kpp_clim == 2, 0,
+                ifel(kpp_clim == 5 & Thot > 0, 51,
+                     ifel(kpp_clim == 5 & Thot < 0, 52, 0)))
+  
+  kpp_types <- kpp_A+kpp_B+kpp_C+kpp_D+kpp_E
+  
+  kpp_subA <- kpp_A
+  kpp_subE <- kpp_E
+  
+  kpp_subB <- ifel(kpp_B == 21 & MAT >= 18, 21.1,
+                   ifel(kpp_B == 21 & MAT < 18, 21.2,
+                        ifel(kpp_B == 22 & MAT >= 18, 22.1,
+                             ifel(kpp_B == 22 & MAT < 18, 22.2, 0))))
+  
+  kpp_subC <- ifel(kpp_C == 31 & Thot>=22, 31.1,
+                   ifel(kpp_C == 31 & Tm10>=4, 31.2,
+                        ifel(kpp_C == 31 & Tm10<4, 31.3,
+                             ifel(kpp_C == 32 & Thot>=22, 32.1,
+                                  ifel(kpp_C == 32 & Tm10>=4, 32.2,
+                                       ifel(kpp_C == 32 & Tm10<4, 32.3,
+                                            ifel(kpp_C == 33 & Thot>=22, 33.1,
+                                                 ifel(kpp_C == 33 & Tm10>=4, 33.2,
+                                                      ifel(kpp_C == 33 & Tm10<4, 33.3, 0)))))))))
+  
+  kpp_subD <- ifel(kpp_D == 41 & Thot>=22, 41.1,
+                   ifel(kpp_D == 41 & Tm10>=4, 41.2,
+                        ifel(kpp_D == 41 & Tm10<4, 41.3,
+                             ifel(kpp_D == 41 & Tcold<=38, 41.4,
+                                  ifel(kpp_D == 42 & Thot>=22, 42.1,
+                                       ifel(kpp_D == 42 & Tm10>=4, 42.2,
+                                            ifel(kpp_D == 42 & Tm10<4, 42.3,
+                                                 ifel(kpp_D == 42 & Tcold<=38, 42.4,
+                                                      ifel(kpp_D == 43 & Thot>=22, 43.1, 
+                                                           ifel(kpp_D == 43 & Tm10>=4, 43.2,
+                                                                ifel(kpp_D == 43 & Tm10<4, 43.3,
+                                                                     ifel(kpp_D == 43 & Tcold<=38, 43.4, 0))))))))))))
+  
+  kpp_subtypes <- kpp_subA+kpp_subE+kpp_subB+kpp_subC+kpp_subD
+  bioc.path <- paste(save.path, "kgcs_1981-2010_", mod[[i2]], ".tif", sep="")
+  writeRaster(kpp_subtypes, bioc.path, overwrite=T)
+  gc()
+}
+
+
