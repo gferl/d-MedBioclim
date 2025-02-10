@@ -1,0 +1,199 @@
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+#||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+
+##DELTA CHANGES METHOD---- 
+#Programmer: Giovanni-Breogán Ferreiro-Lera (https://linktr.ee/gferrle)
+#Last modification date: 
+
+#the original files were obtained from he Lawrence Livermore National Laboratory (LLNL) ESGF node (https://aims2.llnl.gov/search/cmip6/) (Accessed: 2024/12/16). 
+#then, they were assessed and downscaled through Empirical Bayesian kriging (EBK). #More details about the methods can be checked in the published papers: 
+      #1. Ferreiro-Lera et al. (2024): https://doi.org/10.3390/rs16111831; 
+      #2. Ferreiro-Lera et al. (2025): https://doi.org/10.1016/j.gloplacha.2025.104725
+
+#SETTING THW WORKING DIRECTORY-----
+
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path)) #we look for the folder in which we have saved the script
+setwd("..") #and move it one position forwards 
+
+#LIBRARIES----
+if (!require("terra")) install.packages("terra")
+library(terra)
+
+#ORGANIZING AND NAMING FILES----
+
+#creating a list twith the names of the directories
+mod <- c("+RF-MME", "ACCESS-CM2", "ACCESS-ESM1-5", "BCC-CSM2-MR", "CanESM5",  "CanESM5-CanOE", "CAS-ESM2-0", "CMCC-ESM2",  "CNRM-CM6-1", "CNRM-ESM2-1", "FGOALS-f3-L", "FIO-ESM2-0", "GFDL-ESM4", "GISS-E2-1-G", "GISS-E2-2-G", "HadGEM-GC31-LL", "INM-CM5-0", "IPSL-CM6A-LR", "KACE-1-0-G", "MCM-UA-1-0","MIROC-ES2L", "MIROC6", "MPI-ESM1-2-HR", "MPI-ESM1-2-LR", "MRI-ESM2-0", "UKES-M1-1-LL") #giving a more appropriate name to the GCMs names
+mod #to check it
+
+y <- c("2026-2050", "2051-2075", "2076-2100") #names of the first layer of directories (timeframe)
+sc <- c("ssp1-rcp26", "ssp2-rcp45", "ssp5-rcp85") #names of the second layer of directories (emission scenarios)
+v <- c("tas", "pr") #names of the third layer of directories (variables)
+month <- c("01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12")
+
+
+#DELTA CHANGES METHOD---- 
+#for more info: Wilby et al. (2009): https://doi.org/10.1002/joc.1839)
+#firstly we are going to create a SpatExtent file in order to give all the SpatRasters the same extension
+clip <- ext(-10.2375, 46.1625, 33.96077, 51.76077) #the SpatExtent object
+#also we will load the study area polygon with a 10 km buffer to clip the obtained rasters
+st.area <- vect("D:/+bbdd/shp/study_area_buffer.shp")
+st.area <- project(st.area, "EPSG:4326") #to project it into a common Coordinate System
+#the common Coordinate System is <<lon/lat WGS 84 (EPSG:4326)>>
+
+
+#loading CHELSA and ERA5 Land data
+t.chelsa <- rast(list.files(paste(getwd(), "/1981-2010/CHELSA/tas", sep=""), full.names = T)) 
+#chelsa temperature
+p.chelsa <- rast(list.files(paste(getwd(), "/1981-2010/CHELSA/pr", sep=""), full.names = T)) #chelsa rainfall
+t.e5land <- rast(list.files(paste(getwd(), "/1981-2010/E5L/tas", sep=""), full.names = T)) #era5 land temperature
+p.e5land <- rast(list.files(paste(getwd(), "/1981-2010/E5L/pr", sep=""), full.names = T)) #era5 land rainfall
+
+#a loop applying the delta method for all the timeframes, emission scenarios and GCMs
+#we will create two identical loops, one for temperature, and one for precipitation
+
+#Temperature loop----
+for(i0 in 1:3){ #i0 is used to run the loop between the different timeframes. i0 takes the following values 1: 2026-2050, 2: 2051-2075, 3: 2076-2100. 
+  for(i in 1:3){ #i is used to run the loop between the different scenarios i takes the following values 1: ssp1-rcp26, 2: ssp2-rcp45, 3: ssp5-rcp85.
+    for(i2 in 1:26){ #i2 is used to run the loop between the different GCMs i2 ranges between the model 1, correponding to the Random Forest Multi-model Ensemble (RF-MME), to the model 26 (alphabetically ordered): UKES-M1-1-LL.
+      for(i3 in 1:12){ #i3 is used to run the loop between the months. i3 ranges between 1: January and 12: December.
+        
+        cur.dir <- paste(getwd(), "/1981-2010/GCMs/", v[[1]], "/", mod[[i2]], sep = "") #selecting the directory of the currrent data (reference: 1981-2010)
+        fut.dir <- paste(getwd(), "/", y[[i0]], "/", sc[[i]], "/", v[[1]], "/", mod[[i2]], sep="") #selecting the directory with the future data (and where delta-changes will be saved)
+        raw_dir <- paste(fut.dir, "/", "raw_data", sep="") #raw directory path
+        dir.create(raw_dir) #a directory for raw data
+        fut_dir_che <- paste(fut.dir, "/", "d_CHELSA", sep = "") #CHELSA directory path
+        dir.create(fut_dir_che) # a directory to save delta change for CHELSA 
+        fut_dir_e5l <- paste(fut.dir, "/", "d_E5L", sep = "")#E5L directory path
+        dir.create(fut_dir_e5l) #to save delta change for ERA5 Land
+        
+        cur.data <- rast(list.files(cur.dir, full.names = T, pattern = ".tif")) #loading the current data
+        fut.data <- rast(list.files(fut.dir, full.names = T, pattern = ".tif")) #loading the future data
+        
+        cur.data <- project(cur.data, "EPSG:4326") #changing the Coordinate System
+        fut.data <- project(fut.data, "EPSG:4326")
+        
+        #chelsa
+        #firstly we have to adjust the properties (resolution, extension, etc.) of all the layers we are going to work with
+        cur.data <- cur.data[[i3]]
+        fut.data <- fut.data[[i3]]
+        chelsa <- t.chelsa[[i3]]
+        
+        #we clip all the layers using the study area buffer polygon (lines 125-126)
+        cur.data <- crop(cur.data, st.area, mask=T)
+        fut.data <- crop(fut.data, st.area, mask=T)
+        chelsa <- crop(chelsa, clip) #in the case of chelsa, we should adjust it to a european location. We will use the clip frame (line 123) for this purpose. 
+        chelsa <- crop(chelsa, st.area, mask=T)
+        
+        #giving the same properties to current and future layers to avoid subsequent errors
+        cur.data <- resample(cur.data, fut.data) 
+        
+        #getting the anomalies and the delta
+        anom <- fut.data - cur.data #getting the anomaly between future and current data
+        anom <- resample(anom, chelsa) #giving the anomalies layer the same geometry than the cut chelsa layer
+        ch.delta <- chelsa + anom #obtaining the delta
+        ch.path <- paste(fut_dir_che, "/CH_", v[[1]], "_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], "_", month[[i3]], ".tif", sep = "") #saving it in the correct directory
+        writeRaster(ch.delta, ch.path)
+        
+        #the same but for ERA5 Land
+        e5land <- t.e5land[[i3]] #selecting the correct month from the era5 land temperature raster stack
+        e5land <- crop(e5land, st.area, mask=T)
+        anom <- resample(anom, e5land) #giving now the same geometry than era5 land (the anomaly is the same)
+        e5l.delta <- e5land + anom 
+        e5l.path <- paste(fut_dir_e5l, "/E5L_", v[[1]], "_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], "_", month[[i3]], ".tif", sep = "")
+        writeRaster(e5l.delta, e5l.path)
+      }
+    }
+  }
+}
+
+#Precipitation loop----
+#the proccess is the same than in the case of temperature 
+for(i0 in 1:3){
+  for(i in 1:3){
+    for(i2 in 1:26){
+      for(i3 in 1:12){
+        
+        cur.dir <- paste(getwd(), "/1981-2010/GCMs/", v[[2]], "/", mod[[i2]], sep = "") 
+        fut.dir <- paste(getwd(), "/", y[[i0]], "/", sc[[i]], "/", v[[2]], "/", mod[[i2]], sep="") 
+        raw_dir <- paste(fut.dir, "/", "raw_data", sep="") 
+        dir.create(raw_dir) 
+        fut_dir_che <- paste(fut.dir, "/", "d_CHELSA", sep = "")
+        dir.create(fut_dir_che) 
+        fut_dir_e5l <- paste(fut.dir, "/", "d_E5L", sep = "")
+        dir.create(fut_dir_e5l)
+        
+        cur.data <- rast(list.files(cur.dir, full.names = T, pattern = ".tif")) 
+        fut.data <- rast(list.files(fut.dir, full.names = T, pattern = ".tif")) 
+        
+        cur.data <- project(cur.data, "EPSG:4326") 
+        fut.data <- project(fut.data, "EPSG:4326")
+        
+        #chelsa
+        cur.data <- cur.data[[i3]]
+        fut.data <- fut.data[[i3]]
+        chelsa <- p.chelsa[[i3]]
+        
+        cur.data <- crop(cur.data, st.area, mask=T)
+        fut.data <- crop(fut.data, st.area, mask=T)
+        chelsa <- crop(chelsa, clip)
+        chelsa <- crop(chelsa, st.area, mask=T)
+        
+        cur.data <- resample(cur.data, fut.data) 
+        
+        anom <- fut.data/cur.data #in the case of rainfall, the delta is obtained dividing future rainfall between reference rainfall (Wilby et al., 2009)
+        anom <- resample(anom, chelsa) 
+        ch.delta <- chelsa*anom 
+        ch.path <- paste(fut_dir_che, "/CH_", v[[2]], "_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], "_", month[[i3]], ".tif", sep = "") 
+        writeRaster(ch.delta, ch.path)
+        
+        #the same but for ERA5 Land
+        e5land <- p.e5land[[i3]] #selecting the correct month from the era5 land rainfall raster stack
+        e5land <- crop(e5land, st.area, mask=T)
+        anom <- resample(anom, e5land) 
+        e5l.delta <- e5land*anom 
+        e5l.path <- paste(fut_dir_e5l, "/E5L_", v[[2]], "_", y[[i0]], "_", sc[[i]], "_", mod[[i2]], "_", month[[i3]], ".tif", sep = "")
+        writeRaster(e5l.delta, e5l.path)
+      }
+    }
+  }
+}
+
+#saving raw data in the raw data directory----
+for(i0 in 1:3){ #i0 is used to run the loop between the different timeframes. i0 takes the following values 1: 2026-2050, 2: 2051-2075, 3: 2076-2100. 
+  for(i in 1:3){ #i is used to run the loop between the different scenarios. i takes the following values 1: ssp1-rcp26, 2: ssp2-rcp45, 3: ssp5-rcp85.
+    for(i1 in 1:2){ #i1 is used to run the loop between the different variables. i1 takes the following values 1: tas (air temperature), 2: pr (total precipitation).
+      for(i2 in 1:26){ #i2 is used to run the loop between the different GCMs. i2 ranges between the model 1, correponding to the Random Forest Multi-model Ensemble (RF-MME), to the model 26 (alphabetically ordered): UKES-M1-1-LL.
+        old.path <- paste(getwd(), "/", y[[i0]], "/", sc[[i]], "/", v[[i1]], "/", mod[[i2]], sep="")
+        files.names <- list.files(old.path, pattern = ".tif", full.names = F)
+        
+        old <- list.files(old.path, pattern = ".tif", full.names = T)
+        
+        new <- list(paste(old.path, "/raw_data/", files.names[[1]], sep = ""),
+                    paste(old.path, "/raw_data/", files.names[[2]], sep = ""),
+                    paste(old.path, "/raw_data/", files.names[[3]], sep = ""),
+                    paste(old.path, "/raw_data/", files.names[[4]], sep = ""),
+                    paste(old.path, "/raw_data/", files.names[[5]], sep = ""),
+                    paste(old.path, "/raw_data/", files.names[[6]], sep = ""),
+                    paste(old.path, "/raw_data/", files.names[[7]], sep = ""),
+                    paste(old.path, "/raw_data/", files.names[[8]], sep = ""),
+                    paste(old.path, "/raw_data/", files.names[[9]], sep = ""),
+                    paste(old.path, "/raw_data/", files.names[[10]], sep = ""),
+                    paste(old.path, "/raw_data/", files.names[[11]], sep = ""),
+                    paste(old.path, "/raw_data/", files.names[[12]], sep = ""))
+        
+        for(i3 in 1:12){ #i3 is used to run the loop between the months. i3 ranges between 1: January and 12: December.
+          file.rename(old[[i3]], new[[i3]])
+        }
+      }
+    }
+  }
+}
