@@ -6,7 +6,7 @@
 
 #NAMING FILES----
 #Programmer: Giovanni-Breogán Ferreiro-Lera (https://linktr.ee/gferrle)
-#Last modification date: 14/11/2024
+#Last modification date: 2024/11/14
 
 #the original files were obtained from he Lawrence Livermore National Laboratory (LLNL) ESGF node (https://aims2.llnl.gov/search/cmip6/) (Accessed: 2024/12/16). 
 #then, they were assessed and downscaled through Empirical Bayesian kriging (EBK). #More details about the methods can be checked in the published papers: 
