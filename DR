@@ -2,18 +2,20 @@
 #Giovanni-B. Ferreiro-Lera, 23-feb.-2026
 #Main article is available in: [add when published]
 
-DR <- function(cont){ #being cont a 2x2 matrix from the base function matrix()
+rDR <- function(cont){ #being cont a 2x2 matrix from the base function matrix()
   tpr <- cont[1,1]/(cont[1,1]+cont[2,1])
   fpr <-  cont[1,2]/(cont[1,2]+cont[2,2])
   mp <- (tpr+fpr)/2
-  
+
   dr <- sqrt((tpr-mp)^2+(fpr-mp)^2)
-    
-  if(fpr>tpr){dr=-1*dr}else(dr=dr)
-  return(dr)  
+  if(fpr>tpr){dr=-1*dr}else(dr=dr)  
+  
+rdr <- 2*dr*sqrt(0.5)
+  
+  return(dr, rdr)  
 }
 
 #example
 ex.mat <- matrix(c(30, 5, 35, 105), nrow = 2,ncol = 2)
-ex.val <- DR(ex.mat)
+ex.val <- rDR(ex.mat)
 
